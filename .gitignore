@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Dados pesados
+data/
+models/
+outputs/
+runs/
+*.pt
+*.pth
+*.onnx
+
+# SO / editor
+.DS_Store
+.idea/
+.vscode/
