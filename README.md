@@ -17,10 +17,10 @@ detecção de eventos (picos de probabilidade + refratário para não contar fei
 
 ## Roadmap
 
-- [ ] **Fase 0 — fundação (andando sem treinar nada):** YOLO-pose rodando em vídeo de sparring, esqueleto desenhado, 2 boxeadores separados por tracking
-- [ ] **Fase 1 — features de pose:** velocidade do punho, distância punho→cabeça do oponente, ângulo de cotovelo; baseline com regras antes de qualquer ML
+- [x] **Fase 0 — fundação:** YOLO-pose rodando em vídeo de sparring, esqueleto desenhado, 2 boxeadores separados por tracking ✅
+- [x] **Fase 1 — features de pose + contador por regras:** velocidade do punho, extensão do braço, distância punho→cabeça do oponente; baseline com pico estatístico (média + Kσ) + refratário antes de qualquer ML ✅ (validado em Edwards vs Lenzi, Olympics 2024)
 - [ ] **Fase 2 — classificador temporal:** LSTM/TCN sobre janelas de ~25 frames de keypoints (dataset BoxingVI p/ golpes; anotação própria p/ bloqueios e esquivas)
-- [ ] **Fase 3 — contagem:** detecção de eventos + refratário; relatório por round
+- [ ] **Fase 3 — contagem refinada:** classificação por tipo (jab/cross/hook/uppercut), bloqueios e esquivas; relatório por round
 - [ ] **Fase 4 (futuro):** YOLO nano quantizado on-device (ESP32-S3)
 
 ## Datasets
@@ -41,9 +41,11 @@ detecção de eventos (picos de probabilidade + refratário para não contar fei
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# vídeo de exemplo (ou webcam: --source 0)
-python src/run_pose.py --source caminho/do/video.mp4 --save
-# saída anotada fica em runs/pose/outputs/pose (padrão do ultralytics)
+# Fase 0: pose + tracking (vídeo anotado em runs/)
+python src/run_pose.py --source data/video.mp4 --save
+
+# Fase 1: features + contador de golpes (outputs/features.csv, eventos.json, annotated.mp4)
+python src/features.py --source data/video.mp4 --save
 ```
 
 ## Estrutura
@@ -51,7 +53,8 @@ python src/run_pose.py --source caminho/do/video.mp4 --save
 ```
 boxing-vision/
 ├── src/
-│   └── run_pose.py      # Fase 0: pose + tracking em vídeo
+│   ├── run_pose.py      # Fase 0: pose + tracking em vídeo
+│   └── features.py      # Fase 1: features de pose + contador por regras
 ├── data/                # vídeos e datasets (gitignored)
 ├── models/              # pesos (gitignored)
 ├── outputs/             # vídeos anotados (gitignored)

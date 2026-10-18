@@ -14,3 +14,34 @@
   serão anotados manualmente (gravação própria).
 - **Contador = detecção de eventos** com refratário (~N frames sem novo evento) para não
   contar feints e combinações duas vezes.
+
+## 2026-10-18 — Fase 1
+
+- **Features normalizadas pela largura dos ombros** (invariante a escala/distância da câmera):
+  velocidade do punho, extensão (punho→ombro) e distância punho→cabeça do oponente (só com
+  exatamente 2 pessoas no frame — elimina juiz/plateia do sinal).
+- **Regra de golpe:** pico acima de média + 3σ da janela deslizante (45 frames), braço estendido
+  (≥1.05× ombros), piso absoluto de velocidade e refratário de 12 frames por braço.
+- **YouTube bloqueou clients web/desktop com SABR** ("page needs to be reloaded"); cliente
+  `android` do yt-dlp passou. nightly + `--extractor-args "youtube:player_client=android"`.
+- Lição de execução: luta completa (~5100 frames, 170s) passa de 7 min no pipeline — rodar
+  com `--save` em background ou cortar trecho antes.
+
+## 2026-10-18 — Fase 1 v2: slots espaciais (achado central)
+
+- **ByteTrack churna em luta olímpica:** 225 IDs distintos para 2 boxeadores no vídeo de 170s
+  (highlight com cortes, juiz/filmadores no frame). Top-2 IDs cobriam só **23%** dos frames;
+  63% dos IDs morriam em <1s. Janelas por ID nunca enchem → contador da v1 dava 29 golpes
+  na luta inteira e **0** num segmento de 40s.
+- **Correção: 2 slots espaciais A/B** — abandonar a identidade do tracker e casar detecções ao
+  slot mais próximo (atribuição de custo mínimo por centróides dos ombros). Oclusão só esconde
+  o slot; as janelas ficam sempre quentes. Cobertura por slot: 80% (vs 23%).
+- **Cortes de câmera geram "golpes" falsos** (teleporte de keypoints): vel 27 ombros/frame,
+  ext 21. Filtro físico resolve: velocidade >10 ombros/frame reseta a janela (descontinuidade),
+  extensão >3 ombros é keypoint quebrado. No segmento de 40s: 34 → 16 eventos, todos plausíveis.
+- **Confirmação de pico local** (v[t-1] <= v[t] > v[t+1]) marca o evento no frame do pico,
+  não no primeiro frame acima do limiar.
+- Resultado do segmento de 40s: 16 golpes (24/min somando os 2 boxeadores), balanceado por
+  braço (8/8). Validação humana pendente (assistir o annotated.mp4 e anotar a verdade).
+
+
