@@ -99,15 +99,21 @@
       <div class="stat"><div class="n red">{{ preset.total }}</div><div class="l">Golpes totais</div>
         <div class="d">{{ preset.por_minuto }}/min (soma dos 2)</div></div>
       <div class="stat"><div class="n red">A</div><div class="l">Boxeador A</div>
-        <div class="d">{{ preset.slots[0].golpes_total }} golpes · {{ preset.slots[0].golpes_L }} esq / {{ preset.slots[0].golpes_R }} dir</div></div>
+        <div class="d">{{ preset.slots[0].golpes_total }} golpes · {{ preset.slots[0].golpes_L }} esq / {{ preset.slots[0].golpes_R }} dir{% if preset.slots[0].hidden is defined %} · oculto {{ preset.slots[0].hidden }}f{% endif %}</div></div>
       <div class="stat"><div class="n blue">B</div><div class="l">Boxeador B</div>
-        <div class="d">{{ preset.slots[1].golpes_total }} golpes · {{ preset.slots[1].golpes_L }} esq / {{ preset.slots[1].golpes_R }} dir</div></div>
+        <div class="d">{{ preset.slots[1].golpes_total }} golpes · {{ preset.slots[1].golpes_L }} esq / {{ preset.slots[1].golpes_R }} dir{% if preset.slots[1].hidden is defined %} · oculto {{ preset.slots[1].hidden }}f{% endif %}</div></div>
       <div class="stat"><div class="n">{{ preset.duracao_s }}s</div><div class="l">Duração</div>
         <div class="d">{{ preset.frames }} frames @ {{ preset.fps|round(1) }} fps</div></div>
     </div>
 
     {% if preset.video_url %}
     <video id="presetVid" src="{{ preset.video_url }}" controls preload="metadata"></video>
+    {% elif preset.video_em_processamento %}
+    <div class="note" style="padding:14px; border:1px dashed var(--warn); border-radius:10px;">
+      ⏳ O vídeo anotado está sendo re-processado (nova versão do detector). Os eventos abaixo
+      já estão na ordem cronológica; o player volta aqui automaticamente quando o job terminar —
+      recarregue a página em alguns minutos.
+    </div>
     {% endif %}
 
     <div class="timeline" id="timeline"></div>
@@ -175,7 +181,7 @@ function renderEvents(tbodyId, videoId, events, fps) {
       <td>${e.vel}</td><td>${e.ext}</td><td>${e.dist_cabeca_opp ?? '—'}</td></tr>`;
   }).join('');
   tb.querySelectorAll('tr.ev').forEach(tr =>
-    tr.onclick = () => { const v = document.getElementById(videoId); v.currentTime = tr.dataset.t; v.play(); });
+    tr.onclick = () => { const v = document.getElementById(videoId); if (!v) return; v.currentTime = tr.dataset.t; v.play(); });
 }
 
 function renderTimeline(tlId, videoId, events, fps, dur) {
@@ -186,7 +192,7 @@ function renderTimeline(tlId, videoId, events, fps, dur) {
   tl.innerHTML = buckets.map((b, i) =>
     `<div class="bar" style="height:${Math.max(4, 100*b/max)}%" data-t="${i/NB*dur}"></div>`).join('');
   tl.querySelectorAll('.bar').forEach(bar =>
-    bar.onclick = () => { const v = document.getElementById(videoId); v.currentTime = bar.dataset.t; v.play(); });
+    bar.onclick = () => { const v = document.getElementById(videoId); if (!v) return; v.currentTime = bar.dataset.t; v.play(); });
 }
 
 function statCard(n, cls, label, detail) {
@@ -200,8 +206,8 @@ function renderResult(payload, videoUrl, title) {
   const s = payload.slots;
   document.getElementById('jrStats').innerHTML =
     statCard(payload.total, 'red', 'Golpes totais', `${payload.por_minuto}/min`) +
-    statCard('A', 'red', 'Boxeador A', `${s[0].golpes_total} · ${s[0].golpes_L}E/${s[0].golpes_R}D · cov ${s[0].cobertura_pct}%`) +
-    statCard('B', 'blue', 'Boxeador B', `${s[1].golpes_total} · ${s[1].golpes_L}E/${s[1].golpes_R}D · cov ${s[1].cobertura_pct}%`) +
+    statCard('A', 'red', 'Boxeador A', `${s[0].golpes_total} · ${s[0].golpes_L}E/${s[0].golpes_R}D · cov ${s[0].cobertura_pct}%` + (s[0].hidden != null ? ` · oculto ${s[0].hidden}f` : '')) +
+    statCard('B', 'blue', 'Boxeador B', `${s[1].golpes_total} · ${s[1].golpes_L}E/${s[1].golpes_R}D · cov ${s[1].cobertura_pct}%` + (s[1].hidden != null ? ` · oculto ${s[1].hidden}f` : '')) +
     statCard(payload.duracao_s + 's', '', 'Duração', `${payload.frames} frames`);
   const v = document.getElementById('jrVid');
   v.src = videoUrl;

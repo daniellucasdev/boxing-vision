@@ -19,6 +19,7 @@ import sys
 import uuid
 from pathlib import Path
 
+import cv2
 from flask import Flask, jsonify, request, render_template, send_from_directory
 from werkzeug.utils import secure_filename
 
@@ -53,7 +54,18 @@ def _load_preset() -> dict | None:
     for s in slots:
         s.setdefault("cobertura_pct", round(100 * s.get("frames", 0) / max(frames, 1)))
         s.setdefault("golpes_total", s.get("golpes_L", 0) + s.get("golpes_R", 0))
-    payload["video_url"] = "/media/annotated.mp4" if (OUT / "annotated.mp4").exists() else None
+    payload["eventos"] = sorted(payload.get("eventos", []), key=lambda e: e.get("frame", 0))
+    vid = OUT / "annotated.mp4"
+    payload["video_url"] = None
+    payload["video_em_processamento"] = False
+    if vid.exists():
+        cap = cv2.VideoCapture(str(vid))
+        ok = cap.isOpened() and cap.get(cv2.CAP_PROP_FRAME_COUNT) > 0
+        cap.release()
+        if ok:
+            payload["video_url"] = "/media/annotated.mp4"
+        else:
+            payload["video_em_processamento"] = True  # job reescrevendo o arquivo
     payload["titulo"] = Path(payload.get("video", "?")).name
     return payload
 

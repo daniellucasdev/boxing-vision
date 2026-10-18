@@ -26,8 +26,8 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import os
 from collections import deque
-from itertools import permutations
 from pathlib import Path
 
 import cv2
@@ -48,6 +48,9 @@ MIN_CONF_KPS = 0.3
 MIN_HIST = 8      # amostras mínimas antes de detectar
 MAX_SPEED = 10.0  # acima disso = corte de câmera/teleporte (ombros/frame), reseta janela
 MAX_EXT = 3.0     # braço não tem 3 larguras de ombro; acima = keypoint quebrado
+MAX_MATCH_SW = 4.0  # re-captura de slot: distância máx. (× largura de ombros do slot)
+SCALE_MIN = 0.35    # escala da detecção deve estar em [SCALE_MIN, SCALE_MAX] × a do slot
+SCALE_MAX = 2.8     # (rejeita juiz/plateia/filmador que passem perto)
 
 
 class Slot:
@@ -56,7 +59,9 @@ class Slot:
     def __init__(self, name: str) -> None:
         self.name = name
         self.center: np.ndarray | None = None   # centroide da última detecção
+        self.sw: float | None = None            # escala esperada (EMA da largura de ombros)
         self.frames = 0                          # frames com detecção
+        self.hidden = 0                          # frames sem detecção (diagnóstico)
         self.prev: dict[str, np.ndarray | None] = {"L": None, "R": None}
         self.hist: dict[str, deque[float]] = {"L": deque(maxlen=WINDOW), "R": deque(maxlen=WINDOW)}
         self.last_punch: dict[str, int] = {"L": -10_000, "R": -10_000}
@@ -84,6 +89,7 @@ class Slot:
         sw = float(np.linalg.norm(ls[:2] - rs[:2]))
         if sw < 1.0:
             return
+        self.sw = sw if self.sw is None else 0.9 * self.sw + 0.1 * sw
         self.center = ((ls[:2] + rs[:2]) / 2 + kps[NOSE][:2]) / 2
 
         feats: dict[str, object] = {}
@@ -150,31 +156,49 @@ class Slot:
             rows.append({"frame": frame_idx, "slot": self.name, "ombros_px": round(sw, 1), **feats})
 
 
-def match_slots(slots: list[Slot], dets: list[np.ndarray]) -> list[int | None]:
-    """Cada slot ao centroide mais próximo (2 slots, n detecções → atribuição de custo mínimo).
+def match_slots(slots: list[Slot], dets: list[np.ndarray], det_sws: list[float | None]) -> list[int | None]:
+    """Associa cada slot a uma detecção com gating de distância e escala.
+
+    - distância: re-captura só se a detecção está a <= MAX_MATCH_SW larguras de ombro
+      da última posição do slot (boxeador não teleporta; juiz a 5 m não assume o slot);
+    - escala: largura de ombros da detecção precisa ser compatível com a do slot
+      (plateia ao fundo é minúscula, filmador perto é gigante).
 
     Retorna índice da detecção por slot (None = slot oculto neste frame).
     """
     n = len(dets)
-    assign: list[int | None] = [None, None]
-    if n == 0:
-        return assign
-    if slots[0].center is None or slots[1].center is None:
-        # inicialização (ou perda total): primeiras n detecções em ordem
-        for i, s in enumerate(slots):
-            if s.center is None and i < n:
-                assign[i] = i
-        return assign
-    if n == 1:
-        d = [float(np.linalg.norm(dets[0] - s.center)) for s in slots]
-        assign[int(np.argmin(d))] = 0
-        return assign
-    best, best_cost = assign, float("inf")
-    for i, j in permutations(range(n), 2):
-        cost = float(np.linalg.norm(dets[i] - slots[0].center)) + float(
-            np.linalg.norm(dets[j] - slots[1].center))
-        if cost < best_cost:
-            best_cost, best = cost, [i, j]
+
+    def dist(si: int, di: int) -> float:
+        return float(np.linalg.norm(dets[di] - slots[si].center))
+
+    def ok(si: int, di: int) -> bool:
+        s = slots[si]
+        sw_det = det_sws[di]
+        if s.sw is not None:
+            if sw_det is None or not (SCALE_MIN * s.sw <= sw_det <= SCALE_MAX * s.sw):
+                return False
+        if s.center is None:
+            return True  # slot perdido: só o gate de escala se aplica
+        return dist(si, di) <= MAX_MATCH_SW * (s.sw or 1.0)
+
+    best, best_score = [None, None], None
+    opts = [None] + list(range(n))
+    for a in opts:
+        for b in opts:
+            if a is not None and b is not None and a == b:
+                continue
+            if a is not None and not ok(0, a):
+                continue
+            if b is not None and not ok(1, b):
+                continue
+            cost_a = dist(0, a) if (a is not None and slots[0].center is not None) else 0.0
+            cost_b = dist(1, b) if (b is not None and slots[1].center is not None) else 0.0
+            cost = cost_a + cost_b
+            matched = (a is not None) + (b is not None)
+            # prefere casar mais slots (gates já limitam a distância); empate: menor custo
+            score = cost - 1_000.0 * matched
+            if best_score is None or score < best_score:
+                best_score, best = score, [a, b]
     return best
 
 
@@ -229,16 +253,21 @@ def run_pipeline(
             continue
 
         kps_all = r.keypoints.data.cpu().numpy()  # (n, 17, 3)
-        centers = [
-            (k[L_SHOULDER][:2] + k[R_SHOULDER][:2]) / 2
-            if k[L_SHOULDER][2] > MIN_CONF_KPS and k[R_SHOULDER][2] > MIN_CONF_KPS
-            else k[NOSE][:2]
-            for k in kps_all
-        ]
-        matched = match_slots(slots, centers)
+        centers = []
+        det_sws: list[float | None] = []
+        for k in kps_all:
+            ls, rs = k[L_SHOULDER], k[R_SHOULDER]
+            if ls[2] > MIN_CONF_KPS and rs[2] > MIN_CONF_KPS:
+                centers.append((ls[:2] + rs[:2]) / 2)
+                det_sws.append(float(np.linalg.norm(ls[:2] - rs[:2])))
+            else:
+                centers.append(k[NOSE][:2])
+                det_sws.append(None)
+        matched = match_slots(slots, centers, det_sws)
 
         for si, (s, det_i) in enumerate(zip(slots, matched)):
             if det_i is None:
+                s.hidden += 1
                 s.reset_match()
                 continue
             # nose do oponente (só quando os 2 slots casados neste frame)
@@ -259,7 +288,7 @@ def run_pipeline(
                 h, w = annotated.shape[:2]
                 for fourcc in ("avc1", "mp4v"):
                     writer = cv2.VideoWriter(
-                        str(out_dir / "annotated.mp4"),
+                        str(out_dir / "annotated.partial.mp4"),
                         cv2.VideoWriter_fourcc(*fourcc), fps, (w, h)
                     )
                     if writer.isOpened():
@@ -272,6 +301,10 @@ def run_pipeline(
 
     if writer is not None:
         writer.release()
+        # publica atomicamente: mp4 so e reproduzivel com o arquivo fechado
+        partial = out_dir / "annotated.partial.mp4"
+        if partial.exists():
+            os.replace(partial, out_dir / "annotated.mp4")
 
     minutes = frame_idx / fps / 60
     total = sum(s.punches["L"] + s.punches["R"] for s in slots)
@@ -280,22 +313,24 @@ def run_pipeline(
         "frames": frame_idx,
         "fps": fps,
         "duracao_s": round(frame_idx / fps, 1) if fps else 0,
-        "versao": "v2-slots",
+        "versao": "v3-slots-gating",
         "total": total,
         "por_minuto": round(total / minutes, 1) if minutes > 0 else 0.0,
         "params": {
             "refractory": REFRACTORY, "k_sigma": K_SIGMA, "min_speed": MIN_SPEED,
             "min_ext": MIN_EXT, "window": WINDOW, "peak_confirm": True,
             "max_speed": MAX_SPEED, "max_ext": MAX_EXT,
+            "max_match_sw": MAX_MATCH_SW, "scale_min": SCALE_MIN, "scale_max": SCALE_MAX,
         },
         "slots": [
             {"slot": s.name, "frames": s.frames,
              "cobertura_pct": round(100 * s.frames / max(frame_idx, 1)),
+             "hidden": s.hidden,
              "golpes_L": s.punches["L"], "golpes_R": s.punches["R"],
              "golpes_total": s.punches["L"] + s.punches["R"]}
             for s in slots
         ],
-        "eventos": [e for s in slots for e in s.events],
+        "eventos": sorted([e for s in slots for e in s.events], key=lambda e: e["frame"]),
     }
 
     if save:
@@ -331,7 +366,7 @@ def main() -> None:
         progress_cb=cb if args.save else None,
     )
 
-    print("\n\n=== Resumo (v2, slots espaciais) ===")
+    print("\n=== Resumo (v3, slots + gating) ===")
     print(f"frames: {payload['frames']} | fps: {payload['fps']:.1f} | duracao: {payload['duracao_s']}s")
     for s in payload["slots"]:
         print(f"slot {s['slot']}: cobertura {s['cobertura_pct']}% | "
