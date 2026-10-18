@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Boxing Vision — Análise de boxe olímpico</title>
+<style>
+  :root {
+    --bg: #0b0e14; --card: #131824; --card2: #1a2131; --line: #232c40;
+    --fg: #e8ecf4; --muted: #8b94a8; --accent: #ff4d5a; --accent2: #38bdf8;
+    --ok: #34d399; --warn: #fbbf24;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--fg);
+         font: 15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 80px; }
+  header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
+  h1 { font-size: 26px; letter-spacing: -0.5px; }
+  h1 .glove { color: var(--accent); }
+  .tag { color: var(--muted); font-size: 13px; }
+  .sub { color: var(--muted); margin-bottom: 26px; font-size: 14px; }
+  section { background: var(--card); border: 1px solid var(--line);
+            border-radius: 14px; padding: 22px; margin-bottom: 24px; }
+  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 1.2px;
+       color: var(--muted); margin-bottom: 16px; }
+  h2 b { color: var(--fg); }
+
+  /* cards de estatística */
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+           gap: 12px; margin-bottom: 18px; }
+  .stat { background: var(--card2); border: 1px solid var(--line);
+          border-radius: 10px; padding: 14px 16px; }
+  .stat .n { font-size: 30px; font-weight: 700; letter-spacing: -1px; }
+  .stat .n.red { color: var(--accent); } .stat .n.blue { color: var(--accent2); }
+  .stat .l { color: var(--muted); font-size: 12px; text-transform: uppercase;
+             letter-spacing: 1px; margin-top: 2px; }
+  .stat .d { color: var(--muted); font-size: 12px; margin-top: 4px; }
+
+  video { width: 100%; border-radius: 10px; background: #000; margin-bottom: 16px; }
+  .note { color: var(--muted); font-size: 13px; margin-top: 10px; }
+
+  /* timeline */
+  .timeline { display: flex; align-items: flex-end; gap: 3px; height: 64px;
+              background: var(--card2); border: 1px solid var(--line);
+              border-radius: 10px; padding: 8px; margin-bottom: 6px; }
+  .timeline .bar { flex: 1; background: var(--accent); opacity: .85; border-radius: 2px 2px 0 0;
+                   min-height: 2px; cursor: pointer; transition: opacity .15s; }
+  .timeline .bar:hover { opacity: 1; background: #ff7681; }
+  .axis { display: flex; justify-content: space-between; color: var(--muted);
+          font-size: 11px; margin-bottom: 18px; }
+
+  /* tabela de eventos */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; color: var(--muted); font-weight: 600; text-transform: uppercase;
+       font-size: 11px; letter-spacing: 1px; padding: 8px 10px;
+       border-bottom: 1px solid var(--line); }
+  td { padding: 7px 10px; border-bottom: 1px solid var(--line); }
+  tr.ev { cursor: pointer; } tr.ev:hover { background: var(--card2); }
+  .pill { display: inline-block; padding: 1px 9px; border-radius: 99px; font-size: 11px;
+          font-weight: 700; }
+  .pill.A { background: rgba(255,77,90,.15); color: var(--accent); }
+  .pill.B { background: rgba(56,189,248,.15); color: var(--accent2); }
+
+  /* upload */
+  .upload { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  input[type=file] { color: var(--muted); font-size: 13px; }
+  button { background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+           padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer; }
+  button:hover { background: #ff6270; }
+  button.ghost { background: var(--card2); border: 1px solid var(--line); color: var(--fg); }
+  button.ghost:hover { background: var(--line); }
+  button:disabled { opacity: .5; cursor: not-allowed; }
+
+  /* progresso */
+  #job { display: none; margin-top: 18px; }
+  .pbar { height: 10px; background: var(--card2); border: 1px solid var(--line);
+          border-radius: 99px; overflow: hidden; margin: 8px 0 6px; }
+  .pbar > div { height: 100%; width: 0%;
+                background: linear-gradient(90deg, var(--accent), var(--warn));
+                transition: width .4s; }
+  .pmeta { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; }
+  #jobErr { color: var(--accent); font-size: 13px; margin-top: 8px; display: none; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1><span class="glove">🥊</span> Boxing Vision</h1>
+    <span class="tag">YOLO-pose · slots A/B · contador por regras</span>
+  </header>
+  <p class="sub">Visão computacional para boxe olímpico: detecta e conta golpes de cada boxeador
+     a partir de vídeo — sem sensor, sem wearables.</p>
+
+  {% if preset %}
+  <section>
+    <h2>Luta analisada — <b>{{ preset.titulo }}</b></h2>
+    <div class="stats">
+      <div class="stat"><div class="n red">{{ preset.total }}</div><div class="l">Golpes totais</div>
+        <div class="d">{{ preset.por_minuto }}/min (soma dos 2)</div></div>
+      <div class="stat"><div class="n red">A</div><div class="l">Boxeador A</div>
+        <div class="d">{{ preset.slots[0].golpes_total }} golpes · {{ preset.slots[0].golpes_L }} esq / {{ preset.slots[0].golpes_R }} dir</div></div>
+      <div class="stat"><div class="n blue">B</div><div class="l">Boxeador B</div>
+        <div class="d">{{ preset.slots[1].golpes_total }} golpes · {{ preset.slots[1].golpes_L }} esq / {{ preset.slots[1].golpes_R }} dir</div></div>
+      <div class="stat"><div class="n">{{ preset.duracao_s }}s</div><div class="l">Duração</div>
+        <div class="d">{{ preset.frames }} frames @ {{ preset.fps|round(1) }} fps</div></div>
+    </div>
+
+    {% if preset.video_url %}
+    <video id="presetVid" src="{{ preset.video_url }}" controls preload="metadata"></video>
+    {% endif %}
+
+    <div class="timeline" id="timeline"></div>
+    <div class="axis"><span>0:00</span><span>{{ (preset.duracao_s / 60)|round(1) }} min</span></div>
+
+    <table>
+      <thead><tr><th>Tempo</th><th>Boxeador</th><th>Braço</th><th>Vel (ombros/f)</th>
+        <th>Ext (ombros)</th><th>Dist. cabeça opp.</th></tr></thead>
+      <tbody id="evbody"></tbody>
+    </table>
+    <p class="note">Clique em uma linha da tabela ou nas barras da linha do tempo para pular
+       o vídeo até o golpe. Velocidade/extensão normalizadas pela largura dos ombros.</p>
+  </section>
+  {% else %}
+  <section>
+    <h2>Nenhuma luta pré-analisada</h2>
+    <p class="note">Rode <code>python src/features.py --source data/olympic.mp4 --save</code>
+       para gerar a demonstração pré-processada.</p>
+  </section>
+  {% endif %}
+
+  <section>
+    <h2>Analisar novo clipe <b>(ao vivo)</b></h2>
+    <div class="upload">
+      <input type="file" id="file" accept="video/mp4,video/webm,video/quicktime,video/x-m4v">
+      <button id="btnUpload" onclick="upload()">Analisar clipe</button>
+      <button class="ghost" onclick="demo()">Usar clipe de exemplo (12s)</button>
+    </div>
+    <p class="note">Funciona melhor com câmera lateral, os 2 boxeadores visíveis.
+       Um clipe de 12s leva ~2–3 min para processar (CPU/MPS local) — a barra abaixo
+       acompanha em tempo real.</p>
+
+    <div id="job">
+      <div class="pmeta"><span id="jobLabel">Enfileirado…</span><span id="jobPct">0%</span></div>
+      <div class="pbar"><div id="jobBar"></div></div>
+      <div class="pmeta"><span id="jobFrames"></span><span id="jobPunches"></span></div>
+      <div id="jobErr"></div>
+    </div>
+  </section>
+
+  <section id="jobResult" class="hidden">
+    <h2>Resultado da análise — <b id="jrTitle"></b></h2>
+    <div class="stats" id="jrStats"></div>
+    <video id="jrVid" controls preload="metadata"></video>
+    <div class="timeline" id="jrTimeline"></div>
+    <div class="axis" id="jrAxis"></div>
+    <table>
+      <thead><tr><th>Tempo</th><th>Boxeador</th><th>Braço</th><th>Vel</th><th>Ext</th><th>Dist.</th></tr></thead>
+      <tbody id="jrBody"></tbody>
+    </table>
+  </section>
+</div>
+
+<script>
+const fmt = (s) => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
+const pill = (c) => `<span class="pill ${c}">${c}</span>`;
+
+function renderEvents(tbodyId, videoId, events, fps) {
+  const tb = document.getElementById(tbodyId);
+  tb.innerHTML = events.map((e, i) => {
+    const t = e.frame / fps;
+    return `<tr class="ev" data-t="${t}">
+      <td>${fmt(t)}</td><td>${pill(e.boxer)}</td>
+      <td>${e.braco === 'L' ? 'Esquerdo' : 'Direito'}</td>
+      <td>${e.vel}</td><td>${e.ext}</td><td>${e.dist_cabeca_opp ?? '—'}</td></tr>`;
+  }).join('');
+  tb.querySelectorAll('tr.ev').forEach(tr =>
+    tr.onclick = () => { const v = document.getElementById(videoId); v.currentTime = tr.dataset.t; v.play(); });
+}
+
+function renderTimeline(tlId, videoId, events, fps, dur) {
+  const NB = 40, tl = document.getElementById(tlId);
+  const buckets = new Array(NB).fill(0);
+  events.forEach(e => buckets[Math.min(NB-1, Math.floor(e.frame / fps / dur * NB))]++);
+  const max = Math.max(...buckets, 1);
+  tl.innerHTML = buckets.map((b, i) =>
+    `<div class="bar" style="height:${Math.max(4, 100*b/max)}%" data-t="${i/NB*dur}"></div>`).join('');
+  tl.querySelectorAll('.bar').forEach(bar =>
+    bar.onclick = () => { const v = document.getElementById(videoId); v.currentTime = bar.dataset.t; v.play(); });
+}
+
+function statCard(n, cls, label, detail) {
+  return `<div class="stat"><div class="n ${cls}">${n}</div><div class="l">${label}</div>
+          <div class="d">${detail}</div></div>`;
+}
+
+function renderResult(payload, videoUrl, title) {
+  document.getElementById('jobResult').classList.remove('hidden');
+  document.getElementById('jrTitle').textContent = title;
+  const s = payload.slots;
+  document.getElementById('jrStats').innerHTML =
+    statCard(payload.total, 'red', 'Golpes totais', `${payload.por_minuto}/min`) +
+    statCard('A', 'red', 'Boxeador A', `${s[0].golpes_total} · ${s[0].golpes_L}E/${s[0].golpes_R}D · cov ${s[0].cobertura_pct}%`) +
+    statCard('B', 'blue', 'Boxeador B', `${s[1].golpes_total} · ${s[1].golpes_L}E/${s[1].golpes_R}D · cov ${s[1].cobertura_pct}%`) +
+    statCard(payload.duracao_s + 's', '', 'Duração', `${payload.frames} frames`);
+  const v = document.getElementById('jrVid');
+  v.src = videoUrl;
+  renderEvents('jrBody', 'jrVid', payload.eventos, payload.fps);
+  renderTimeline('jrTimeline', 'jrVid', payload.eventos, payload.fps, payload.duracao_s);
+  document.getElementById('jrAxis').innerHTML = `<span>0:00</span><span>${fmt(payload.duracao_s)}</span>`;
+  document.getElementById('jobResult').scrollIntoView({ behavior: 'smooth' });
+}
+
+// ---- luta pré-analisada ----
+{% if preset %}
+const P = {{ preset | tojson }};
+if (P.video_url) {
+  renderTimeline('timeline', 'presetVid', P.eventos, P.fps, P.duracao_s);
+}
+renderEvents('evbody', 'presetVid', P.eventos, P.fps);
+{% endif %}
+
+// ---- job de análise ----
+let pollTimer = null;
+
+function setJob(pct, label, frames, punches) {
+  document.getElementById('job').style.display = 'block';
+  document.getElementById('jobBar').style.width = pct + '%';
+  document.getElementById('jobPct').textContent = pct + '%';
+  document.getElementById('jobLabel').textContent = label;
+  document.getElementById('jobFrames').textContent = frames || '';
+  document.getElementById('jobPunches').textContent = punches || '';
+}
+
+function poll(jobId) {
+  fetch(`/api/job/${jobId}`).then(r => r.json()).then(j => {
+    if (j.status === 'running' || j.status === 'queued') {
+      setJob(Math.round(j.pct || 0), j.status === 'queued' ? 'Enfileirado…' : 'Analisando…',
+             j.frame ? `frame ${j.frame}${j.total ? '/' + j.total : ''}` : '',
+             j.punches ? `🥊 ${j.punches} golpes até agora` : '');
+      return;
+    }
+    clearInterval(pollTimer);
+    document.getElementById('btnUpload').disabled = false;
+    document.getElementById('btnDemo').disabled = false;
+    if (j.status === 'done') {
+      setJob(100, 'Concluído', `${j.frames} frames`, `🥊 ${j.total} golpes`);
+      renderResult(j, j.video_url, j.video ? j.video.split('/').pop() : 'clipe');
+    } else {
+      document.getElementById('jobErr').style.display = 'block';
+      document.getElementById('jobErr').textContent = 'Erro: ' + (j.message || 'desconhecido');
+    }
+  }).catch(() => {});
+}
+
+function start(body) {
+  document.getElementById('jobErr').style.display = 'none';
+  document.getElementById('btnUpload').disabled = true;
+  const bd = document.getElementById('btnDemo'); if (bd) bd.disabled = true;
+  fetch('/api/analyze', { method: 'POST', body })
+    .then(r => r.json().then(d => ({ ok: r.ok, d })))
+    .then(({ ok, d }) => {
+      if (!ok) { throw new Error(d.error || 'falha na requisição'); }
+      setJob(0, 'Enfileirado…', '', '');
+      pollTimer = setInterval(() => poll(d.job_id), 1000);
+    })
+    .catch(e => {
+      document.getElementById('btnUpload').disabled = false;
+      const bd = document.getElementById('btnDemo'); if (bd) bd.disabled = false;
+      document.getElementById('jobErr').style.display = 'block';
+      document.getElementById('jobErr').textContent = e.message;
+    });
+}
+
+function upload() {
+  const f = document.getElementById('file').files[0];
+  if (!f) { alert('escolha um arquivo de vídeo primeiro'); return; }
+  const fd = new FormData(); fd.append('video', f); start(fd);
+}
+
+function demo() {
+  const fd = new FormData(); fd.append('demo', 'demo12s.mp4'); start(fd);
+}
+</script>
+</body>
+</html>

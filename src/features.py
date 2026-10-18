@@ -12,13 +12,13 @@ Detector por slot (sem ML, baseline):
     média + K_SIGMA*desvio da janela deslizante, com braço estendido
     (ext >= MIN_EXT) e refratário por braço (combos não contam 2x)
 
-Saídas (--save):
-  outputs/features.csv   — série temporal por frame/slot
-  outputs/eventos.json   — golpes detectados + metadados
-  outputs/annotated.mp4  — vídeo com esqueleto + contadores A/B sobrepostos
-
-Uso:
+CLI:
   python src/features.py --source data/olympic.mp4 --save
+
+Programático (usado pela interface web):
+  from features import run_pipeline
+  payload = run_pipeline("video.mp4", out_dir=Path("outputs/jobs/x"),
+                         progress_cb=fn)
 """
 
 from __future__ import annotations
@@ -178,31 +178,39 @@ def match_slots(slots: list[Slot], dets: list[np.ndarray]) -> list[int | None]:
     return best
 
 
-def main() -> None:
-    ap = argparse.ArgumentParser(description="Fase 1 v2: slots espaciais + contador por regras")
-    ap.add_argument("--source", required=True, help="vídeo de entrada")
-    ap.add_argument("--model", default="yolo11n-pose.pt")
-    ap.add_argument("--conf", type=float, default=0.35)
-    ap.add_argument("--save", action="store_true", help="grava features.csv, eventos.json e annotated.mp4")
-    ap.add_argument("--max-frames", type=int, default=0, help="processa só os N primeiros frames (0 = tudo)")
-    args = ap.parse_args()
+def run_pipeline(
+    source: str,
+    *,
+    model_path: str = "yolo11n-pose.pt",
+    conf: float = 0.35,
+    out_dir: Path | None = None,
+    save: bool = True,
+    max_frames: int = 0,
+    progress_cb=None,
+) -> dict:
+    """Roda o pipeline completo e devolve o payload de resultados.
 
-    out_dir = Path("outputs")
-    out_dir.mkdir(exist_ok=True)
+    progress_cb(frame_idx, total_frames, total_punches) é chamado a cada frame
+    processado (para a barra de progresso da interface web).
+    """
+    out_dir = Path(out_dir) if out_dir else Path("outputs")
+    if save:
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-    cap = cv2.VideoCapture(args.source)
+    cap = cv2.VideoCapture(source)
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 0
     cap.release()
 
-    model = YOLO(args.model)
+    model = YOLO(model_path)
     slots = [Slot("A"), Slot("B")]
     rows: list[dict] = []
     frame_idx = 0
     writer = None
 
     results = model.track(
-        source=args.source,
-        conf=args.conf,
+        source=source,
+        conf=conf,
         persist=True,
         tracker="bytetrack.yaml",
         stream=True,
@@ -211,11 +219,13 @@ def main() -> None:
 
     for r in results:
         frame_idx += 1
-        if args.max_frames and frame_idx > args.max_frames:
+        if max_frames and frame_idx > max_frames:
             break
         if r.keypoints is None or r.boxes is None:
             for s in slots:
                 s.reset_match()
+            if progress_cb:
+                progress_cb(frame_idx, total_frames, 0)
             continue
 
         kps_all = r.keypoints.data.cpu().numpy()  # (n, 17, 3)
@@ -234,9 +244,9 @@ def main() -> None:
             # nose do oponente (só quando os 2 slots casados neste frame)
             opp_i = matched[1 - si]
             opp_nose = kps_all[opp_i][NOSE] if opp_i is not None else None
-            s.update(frame_idx, kps_all[det_i], opp_nose, rows, collect_rows=args.save)
+            s.update(frame_idx, kps_all[det_i], opp_nose, rows, collect_rows=save)
 
-        if args.save:
+        if save:
             annotated = r.plot()
             for s, det_i in zip(slots, matched):
                 if det_i is None:
@@ -256,52 +266,79 @@ def main() -> None:
                         break
             writer.write(annotated)
 
-        if frame_idx % 300 == 0:
+        if progress_cb:
             tot = sum(s.punches["L"] + s.punches["R"] for s in slots)
-            print(f"frame {frame_idx} | dets: {len(kps_all)} | golpes A+B: {tot}")
+            progress_cb(frame_idx, total_frames, tot)
 
     if writer is not None:
         writer.release()
 
     minutes = frame_idx / fps / 60
-    print("\n=== Resumo (v2, slots espaciais) ===")
-    print(f"frames: {frame_idx} | fps: {fps:.1f} | duracao: {frame_idx / fps:.1f}s")
-    total = 0
-    for s in slots:
-        t = s.punches["L"] + s.punches["R"]
-        total += t
-        cov = 100 * s.frames / max(frame_idx, 1)
-        print(f"slot {s.name}: frames {s.frames} ({cov:.0f}% cobertura) | "
-              f"golpes L {s.punches['L']} / R {s.punches['R']} = {t}")
-    print(f"\nTOTAL: {total} golpes ({total / minutes:.1f}/min)" if minutes > 0 else f"\nTOTAL: {total}")
+    total = sum(s.punches["L"] + s.punches["R"] for s in slots)
+    payload = {
+        "video": str(source),
+        "frames": frame_idx,
+        "fps": fps,
+        "duracao_s": round(frame_idx / fps, 1) if fps else 0,
+        "versao": "v2-slots",
+        "total": total,
+        "por_minuto": round(total / minutes, 1) if minutes > 0 else 0.0,
+        "params": {
+            "refractory": REFRACTORY, "k_sigma": K_SIGMA, "min_speed": MIN_SPEED,
+            "min_ext": MIN_EXT, "window": WINDOW, "peak_confirm": True,
+            "max_speed": MAX_SPEED, "max_ext": MAX_EXT,
+        },
+        "slots": [
+            {"slot": s.name, "frames": s.frames,
+             "cobertura_pct": round(100 * s.frames / max(frame_idx, 1)),
+             "golpes_L": s.punches["L"], "golpes_R": s.punches["R"],
+             "golpes_total": s.punches["L"] + s.punches["R"]}
+            for s in slots
+        ],
+        "eventos": [e for s in slots for e in s.events],
+    }
 
-    if args.save:
+    if save:
         with open(out_dir / "features.csv", "w", newline="") as f:
             if rows:
                 wcsv = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
                 wcsv.writeheader()
                 wcsv.writerows(rows)
-        payload = {
-            "video": args.source,
-            "frames": frame_idx,
-            "fps": fps,
-            "versao": "v2-slots",
-            "params": {
-                "refractory": REFRACTORY, "k_sigma": K_SIGMA, "min_speed": MIN_SPEED,
-                "min_ext": MIN_EXT, "window": WINDOW, "peak_confirm": True,
-                "max_speed": MAX_SPEED, "max_ext": MAX_EXT,
-            },
-            "slots": [
-                {"slot": s.name, "frames": s.frames,
-                 "golpes_L": s.punches["L"], "golpes_R": s.punches["R"]}
-                for s in slots
-            ],
-            "eventos": [e for s in slots for e in s.events],
-        }
         with open(out_dir / "eventos.json", "w") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
-        print(f"\nsaídas em outputs/ (features.csv: {len(rows)} linhas, "
-              f"eventos.json: {len(payload['eventos'])} eventos, annotated.mp4)")
+
+    return payload
+
+
+def main() -> None:
+    ap = argparse.ArgumentParser(description="Fase 1 v2: slots espaciais + contador por regras")
+    ap.add_argument("--source", required=True, help="vídeo de entrada")
+    ap.add_argument("--model", default="yolo11n-pose.pt")
+    ap.add_argument("--conf", type=float, default=0.35)
+    ap.add_argument("--save", action="store_true", help="grava features.csv, eventos.json e annotated.mp4")
+    ap.add_argument("--max-frames", type=int, default=0, help="processa só os N primeiros frames (0 = tudo)")
+    args = ap.parse_args()
+
+    def cb(idx: int, total: int, punches: int) -> None:
+        if total:
+            print(f"\rframe {idx}/{total} | golpes: {punches}", end="", flush=True)
+        else:
+            print(f"\rframe {idx} | golpes: {punches}", end="", flush=True)
+
+    payload = run_pipeline(
+        args.source, model_path=args.model, conf=args.conf,
+        save=args.save, max_frames=args.max_frames,
+        progress_cb=cb if args.save else None,
+    )
+
+    print("\n\n=== Resumo (v2, slots espaciais) ===")
+    print(f"frames: {payload['frames']} | fps: {payload['fps']:.1f} | duracao: {payload['duracao_s']}s")
+    for s in payload["slots"]:
+        print(f"slot {s['slot']}: cobertura {s['cobertura_pct']}% | "
+              f"golpes L {s['golpes_L']} / R {s['golpes_R']} = {s['golpes_total']}")
+    print(f"\nTOTAL: {payload['total']} golpes ({payload['por_minuto']}/min)")
+    if args.save:
+        print("saídas em outputs/ (features.csv, eventos.json, annotated.mp4)")
 
 
 if __name__ == "__main__":

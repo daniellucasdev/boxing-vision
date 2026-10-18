@@ -48,13 +48,32 @@ python src/run_pose.py --source data/video.mp4 --save
 python src/features.py --source data/video.mp4 --save
 ```
 
+### Interface web (demonstração)
+
+```bash
+# opção 1: duplo-clique em scripts/start_web.command (Finder)
+# opção 2: terminal
+source .venv/bin/activate
+python src/webapp.py                # http://127.0.0.1:5000
+python src/webapp.py --host 0.0.0.0 # acessível de outro aparelho na rede
+```
+
+A home mostra a luta pré-analisada (instantâneo) e permite analisar clipes novos
+(upload ou clipe de exemplo de 12s) com barra de progresso ao vivo.
+
 ## Estrutura
 
 ```
 boxing-vision/
 ├── src/
 │   ├── run_pose.py      # Fase 0: pose + tracking em vídeo
-│   └── features.py      # Fase 1: features de pose + contador por regras
+│   ├── features.py      # Fase 1: features de pose + contador por regras (CLI + run_pipeline)
+│   ├── analyze.py       # job de análise p/ web (progress.json + result.json)
+│   ├── webapp.py        # interface web Flask
+│   └── templates/
+│       └── index.html   # página única da interface
+├── scripts/
+│   └── start_web.command  # inicia a web (duplo-clique no Finder)
 ├── data/                # vídeos e datasets (gitignored)
 ├── models/              # pesos (gitignored)
 ├── outputs/             # vídeos anotados (gitignored)
