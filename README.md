@@ -1,4 +1,4 @@
-# Boxing Vision 🥊
+# Frami 2.0 🥊
 
 Visão computacional + IA para boxe olímpico: contar **golpes** (jab, cross, hook, uppercut), **bloqueios** e **esquivas** a partir de vídeo.
 
