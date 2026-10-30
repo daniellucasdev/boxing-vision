@@ -44,9 +44,6 @@ esquerda/direita** (do ponto de vista do atleta) e **para frente/trás** em rela
 | **4 estados automáticos** por regras → pré-anotação no modo juiz (`src/estados.py`) | ✅ médias batem com a base nas 2 lutas testadas; por round, erro de ~6 s em ataque/defesa e ~15 s em pausa/deslocamento. Defesa sem subtipo, golpe sem separar finta |
 | Perfil do lutador | ⏳ planejado ([plano](docs/plano_v2.md)) |
 
-Hoje o software **não** distingue tipo de golpe (jab, direto, hook, uppercut), alvo (cabeça/corpo)
-nem defesas. Nenhum modelo foi treinado em dados de boxe: o único peso é o YOLO-pose genérico.
-
 ## Roadmap
 
 - [x] **Fase 0:** YOLO-pose + tracking em vídeo de luta
