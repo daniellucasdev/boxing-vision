@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block titulo %}Boxing Vision{% endblock %}</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+{% block head %}{% endblock %}
+</head>
+<body>
+<nav class="nav" id="nav">
+  <a class="logo" href="/">Boxing<span>Vision</span></a>
+  <div class="nav-links">
+    <a href="/" class="{{ 'ativo' if pagina == 'inicio' }}">Início</a>
+    <a href="/juiz" class="{{ 'ativo' if pagina == 'juiz' }}">Modo juiz</a>
+    <a href="/api/planilha.csv" title="Todas as anotações no layout da planilha v2.0">Planilha v2.0</a>
+  </div>
+  <div class="nav-dir"><span class="selo">v2.0 · boxe olímpico</span></div>
+</nav>
+
+{% block conteudo %}{% endblock %}
+
+<script>
+// navegação fica sólida ao rolar (como na Netflix)
+const nav = document.getElementById('nav');
+const navSolida = () => nav.classList.toggle('solida', window.scrollY > 24);
+window.addEventListener('scroll', navSolida, { passive: true }); navSolida();
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

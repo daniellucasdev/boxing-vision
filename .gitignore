@@ -16,3 +16,6 @@ runs/
 .DS_Store
 .idea/
 .vscode/
+
+# Segredos (chave da API do Claude)
+.env

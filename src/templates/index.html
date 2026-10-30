@@ -1,187 +1,189 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Boxing Vision — Análise de boxe olímpico</title>
-<style>
-  :root {
-    --bg: #0b0e14; --card: #131824; --card2: #1a2131; --line: #232c40;
-    --fg: #e8ecf4; --muted: #8b94a8; --accent: #ff4d5a; --accent2: #38bdf8;
-    --ok: #34d399; --warn: #fbbf24;
-  }
-  * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { background: var(--bg); color: var(--fg);
-         font: 15px/1.55 -apple-system, "Segoe UI", Roboto, sans-serif; }
-  .wrap { max-width: 980px; margin: 0 auto; padding: 28px 20px 80px; }
-  header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 6px; }
-  h1 { font-size: 26px; letter-spacing: -0.5px; }
-  h1 .glove { color: var(--accent); }
-  .tag { color: var(--muted); font-size: 13px; }
-  .sub { color: var(--muted); margin-bottom: 26px; font-size: 14px; }
-  section { background: var(--card); border: 1px solid var(--line);
-            border-radius: 14px; padding: 22px; margin-bottom: 24px; }
-  h2 { font-size: 15px; text-transform: uppercase; letter-spacing: 1.2px;
-       color: var(--muted); margin-bottom: 16px; }
-  h2 b { color: var(--fg); }
+{% extends "base.html" %}
+{% block titulo %}Boxing Vision — boxe olímpico{% endblock %}
 
-  /* cards de estatística */
-  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-           gap: 12px; margin-bottom: 18px; }
-  .stat { background: var(--card2); border: 1px solid var(--line);
-          border-radius: 10px; padding: 14px 16px; }
-  .stat .n { font-size: 30px; font-weight: 700; letter-spacing: -1px; }
-  .stat .n.red { color: var(--accent); } .stat .n.blue { color: var(--accent2); }
-  .stat .l { color: var(--muted); font-size: 12px; text-transform: uppercase;
-             letter-spacing: 1px; margin-top: 2px; }
-  .stat .d { color: var(--muted); font-size: 12px; margin-top: 4px; }
-
-  video { width: 100%; border-radius: 10px; background: #000; margin-bottom: 16px; }
-  .note { color: var(--muted); font-size: 13px; margin-top: 10px; }
-
-  /* timeline */
-  .timeline { display: flex; align-items: flex-end; gap: 3px; height: 64px;
-              background: var(--card2); border: 1px solid var(--line);
-              border-radius: 10px; padding: 8px; margin-bottom: 6px; }
-  .timeline .bar { flex: 1; background: var(--accent); opacity: .85; border-radius: 2px 2px 0 0;
-                   min-height: 2px; cursor: pointer; transition: opacity .15s; }
-  .timeline .bar:hover { opacity: 1; background: #ff7681; }
-  .axis { display: flex; justify-content: space-between; color: var(--muted);
-          font-size: 11px; margin-bottom: 18px; }
-
-  /* tabela de eventos */
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  th { text-align: left; color: var(--muted); font-weight: 600; text-transform: uppercase;
-       font-size: 11px; letter-spacing: 1px; padding: 8px 10px;
-       border-bottom: 1px solid var(--line); }
-  td { padding: 7px 10px; border-bottom: 1px solid var(--line); }
-  tr.ev { cursor: pointer; } tr.ev:hover { background: var(--card2); }
-  .pill { display: inline-block; padding: 1px 9px; border-radius: 99px; font-size: 11px;
-          font-weight: 700; }
-  .pill.A { background: rgba(255,77,90,.15); color: var(--accent); }
-  .pill.B { background: rgba(56,189,248,.15); color: var(--accent2); }
-
-  /* upload */
-  .upload { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-  input[type=file] { color: var(--muted); font-size: 13px; }
-  button { background: var(--accent); color: #fff; border: 0; border-radius: 8px;
-           padding: 10px 18px; font-size: 14px; font-weight: 600; cursor: pointer; }
-  button:hover { background: #ff6270; }
-  button.ghost { background: var(--card2); border: 1px solid var(--line); color: var(--fg); }
-  button.ghost:hover { background: var(--line); }
-  button:disabled { opacity: .5; cursor: not-allowed; }
-
-  /* progresso */
-  #job { display: none; margin-top: 18px; }
-  .pbar { height: 10px; background: var(--card2); border: 1px solid var(--line);
-          border-radius: 99px; overflow: hidden; margin: 8px 0 6px; }
-  .pbar > div { height: 100%; width: 0%;
-                background: linear-gradient(90deg, var(--accent), var(--warn));
-                transition: width .4s; }
-  .pmeta { display: flex; justify-content: space-between; color: var(--muted); font-size: 13px; }
-  #jobErr { color: var(--accent); font-size: 13px; margin-top: 8px; display: none; }
-  .hidden { display: none !important; }
-</style>
-</head>
-<body>
-<div class="wrap">
-  <header>
-    <h1><span class="glove">🥊</span> Boxing Vision</h1>
-    <span class="tag">YOLO-pose · slots A/B · contador por regras</span>
-  </header>
-  <p class="sub">Visão computacional para boxe olímpico: detecta e conta golpes de cada boxeador
-     a partir de vídeo — sem sensor, sem wearables.</p>
-
-  {% if preset %}
-  <section>
-    <h2>Luta analisada — <b>{{ preset.titulo }}</b></h2>
-    <div class="stats">
-      <div class="stat"><div class="n red">{{ preset.total }}</div><div class="l">Golpes totais</div>
-        <div class="d">{{ preset.por_minuto }}/min (soma dos 2)</div></div>
-      <div class="stat"><div class="n red">A</div><div class="l">Boxeador A</div>
-        <div class="d">{{ preset.slots[0].golpes_total }} golpes · {{ preset.slots[0].golpes_L }} esq / {{ preset.slots[0].golpes_R }} dir{% if preset.slots[0].hidden is defined %} · oculto {{ preset.slots[0].hidden }}f{% endif %}</div></div>
-      <div class="stat"><div class="n blue">B</div><div class="l">Boxeador B</div>
-        <div class="d">{{ preset.slots[1].golpes_total }} golpes · {{ preset.slots[1].golpes_L }} esq / {{ preset.slots[1].golpes_R }} dir{% if preset.slots[1].hidden is defined %} · oculto {{ preset.slots[1].hidden }}f{% endif %}</div></div>
-      <div class="stat"><div class="n">{{ preset.duracao_s }}s</div><div class="l">Duração</div>
-        <div class="d">{{ preset.frames }} frames @ {{ preset.fps|round(1) }} fps</div></div>
+{% block conteudo %}
+{% set hero_video = (preset.video_original_url or preset.video_url) if preset
+     else (videos | selectattr('toca_no_navegador') | map(attribute='url') | first) %}
+<header class="hero">
+  <div class="hero-midia">
+    {% if hero_video %}<video src="{{ hero_video }}" autoplay muted loop playsinline></video>{% endif %}
+  </div>
+  <div class="hero-conteudo">
+    {% if preset %}
+    <div class="kicker">{{ preset.luta_onde or 'Análise automática' }}</div>
+    <h1>{{ preset.luta or preset.titulo }}</h1>
+    <div class="hero-meta">
+      <span class="destaque">{{ preset.total }} golpes</span>
+      <span>{{ preset.duracao_s }} s</span>
+      <span class="caixa">2 atletas</span>
+      <span>{{ preset.por_minuto }}/min</span>
     </div>
-
-    {% if preset.video_url %}
-    <video id="presetVid" src="{{ preset.video_url }}" controls preload="metadata"></video>
-    {% elif preset.video_em_processamento %}
-    <div class="note" style="padding:14px; border:1px dashed var(--warn); border-radius:10px;">
-      ⏳ O vídeo anotado está sendo re-processado (nova versão do detector). Os eventos abaixo
-      já estão na ordem cronológica; o player volta aqui automaticamente quando o job terminar —
-      recarregue a página em alguns minutos.
-    </div>
+    <p class="sinopse">Pose + rastreamento separam os dois boxeadores e um contador por regras
+      marca cada golpe no vídeo. Agora com o <b>modo juiz</b>: a rotina da v1.0, cronometrada
+      quadro a quadro, gerando a planilha v2.0.</p>
+    {% else %}
+    <div class="kicker">Boxe olímpico</div>
+    <h1>Boxing Vision</h1>
+    <p class="sinopse">Deslocamento, ataque, defesa e pausa de cada atleta, round a round —
+      e o perfil de estilo de cada lutador.</p>
     {% endif %}
+    <div class="hero-acoes">
+      {% if preset %}<a class="btn btn-branco" href="#analise">▶&nbsp; Ver análise</a>{% endif %}
+      <a class="btn btn-vidro" href="/juiz">✎&nbsp; Modo juiz</a>
+    </div>
+  </div>
+</header>
 
-    <div class="timeline" id="timeline"></div>
-    <div class="axis"><span>0:00</span><span>{{ (preset.duracao_s / 60)|round(1) }} min</span></div>
-
-    <table>
-      <thead><tr><th>Tempo</th><th>Boxeador</th><th>Braço</th><th>Vel (ombros/f)</th>
-        <th>Ext (ombros)</th><th>Dist. cabeça opp.</th></tr></thead>
-      <tbody id="evbody"></tbody>
-    </table>
-    <p class="note">Clique em uma linha da tabela ou nas barras da linha do tempo para pular
-       o vídeo até o golpe. Velocidade/extensão normalizadas pela largura dos ombros.</p>
-  </section>
-  {% else %}
-  <section>
-    <h2>Nenhuma luta pré-analisada</h2>
-    <p class="note">Rode <code>python src/features.py --source data/olympic.mp4 --save</code>
-       para gerar a demonstração pré-processada.</p>
+<div class="fileiras">
+  {% if anotacoes %}
+  <section class="fileira">
+    <h2>Continuar anotando <small>modo juiz · {{ anotacoes|length }} round(s)</small></h2>
+    <div class="trilho">
+      {% for a in anotacoes %}
+      <a class="card" href="/juiz?id={{ a.id }}">
+        <div class="card-thumb">
+          <video data-thumb src="/media/data/{{ a.video }}" preload="metadata" muted playsinline></video>
+          {% if not a.aberto %}<span class="card-selo">Concluído</span>{% endif %}
+          <div class="card-titulo">{{ a.meta.atleta or 'Sem nome' }} · R{{ a.meta.round or '?' }}
+            <small>{% if a.meta.oponente %}vs {{ a.meta.oponente }} · {% endif %}{{ a.meta.competicao or a.video }}</small></div>
+          <div class="card-progresso"><div style="width: {{ [100, (a.t_total / 180 * 100)|round]|min }}%"></div></div>
+        </div>
+      </a>
+      {% endfor %}
+    </div>
   </section>
   {% endif %}
 
-  <section>
-    <h2>Analisar novo clipe <b>(ao vivo)</b></h2>
-    <div class="upload">
-      <input type="file" id="file" accept="video/mp4,video/webm,video/quicktime,video/x-m4v">
-      <button id="btnUpload" onclick="upload()">Analisar clipe</button>
-      <button class="ghost" onclick="demo()">Usar clipe de exemplo (12s)</button>
+  <section class="fileira">
+    <h2>Lutas e clipes <small>clique para anotar no modo juiz</small></h2>
+    <div class="trilho">
+      {% for v in videos %}
+      <a class="card" href="/juiz?video={{ v.nome | urlencode }}">
+        <div class="card-thumb">
+          {% if v.toca_no_navegador %}
+          <video data-thumb src="{{ v.url }}" preload="metadata" muted playsinline></video>
+          {% else %}<span class="card-selo alerta">formato não toca no navegador</span>{% endif %}
+          <div class="card-titulo">{{ v.nome }}<small>{{ v.mb }} MB · {{ v.codec }}</small></div>
+        </div>
+      </a>
+      {% endfor %}
+      <a class="card card-novo" href="/juiz"><div><div class="mais">+</div>Enviar luta completa</div></a>
     </div>
-    <p class="note">Funciona melhor com câmera lateral, os 2 boxeadores visíveis.
-       Um clipe de 12s leva ~2–3 min para processar (CPU/MPS local) — a barra abaixo
-       acompanha em tempo real.</p>
-
-    <div id="job">
-      <div class="pmeta"><span id="jobLabel">Enfileirado…</span><span id="jobPct">0%</span></div>
-      <div class="pbar"><div id="jobBar"></div></div>
-      <div class="pmeta"><span id="jobFrames"></span><span id="jobPunches"></span></div>
-      <div id="jobErr"></div>
-    </div>
-  </section>
-
-  <section id="jobResult" class="hidden">
-    <h2>Resultado da análise — <b id="jrTitle"></b></h2>
-    <div class="stats" id="jrStats"></div>
-    <video id="jrVid" controls preload="metadata"></video>
-    <div class="timeline" id="jrTimeline"></div>
-    <div class="axis" id="jrAxis"></div>
-    <table>
-      <thead><tr><th>Tempo</th><th>Boxeador</th><th>Braço</th><th>Vel</th><th>Ext</th><th>Dist.</th></tr></thead>
-      <tbody id="jrBody"></tbody>
-    </table>
   </section>
 </div>
 
+{% if preset %}
+<section class="bloco" id="analise">
+  <h2 class="bloco-titulo">Análise automática — {{ preset.titulo }}</h2>
+  <p class="bloco-sub">Contador por regras (Fase 1): pico de velocidade do punho com o braço
+    estendido. Ainda não distingue tipo de golpe nem finta.{% if preset.versao in ('v4-cor', 'v5-desl') %}
+    Atletas identificados pela cor do uniforme (E3).{% endif %}</p>
+  <div class="stats">
+    <div class="stat"><div class="n marca">{{ preset.total }}</div><div class="l">Golpes totais</div>
+      <div class="d">{{ preset.por_minuto }}/min (soma dos 2)</div></div>
+    {% for s in preset.slots %}
+    <div class="stat"><div class="n {{ 'vermelho' if loop.first else 'azul' }}">{{ s.golpes_total }}</div>
+      <div class="l">{{ 'Canto ' ~ s.slot if s.slot in ('Vermelho', 'Azul') else 'Boxeador ' ~ s.slot }}</div>
+      <div class="d">{{ s.golpes_L }} esq / {{ s.golpes_R }} dir{% if s.por_cor_pct is defined %} · cor {{ s.por_cor_pct }}% dos quadros{% elif s.hidden is defined %} · oculto {{ s.hidden }}f{% endif %}</div></div>
+    {% endfor %}
+    <div class="stat"><div class="n">{{ preset.duracao_s }}s</div><div class="l">Duração</div>
+      <div class="d">{{ preset.frames }} frames @ {{ preset.fps|round(1) }} fps</div></div>
+  </div>
+
+  {% if preset.deslocamento and preset.deslocamento.atletas %}
+  <h3 class="bloco-titulo sub">Deslocamento (E4)</h3>
+  <p class="bloco-sub">Câmera descontada; direção em relação ao oponente, esquerda/direita do ponto
+    de vista do atleta. Medido só com os pés no quadro: proporções do tempo medido.</p>
+  <div class="stats">
+    {% for nome, a in preset.deslocamento.atletas|dictsort(reverse=true) %}
+    {% set m = a.t_medido or 1 %}
+    <div class="stat"><div class="n {{ 'vermelho' if nome == 'Vermelho' else 'azul' }}">{{ ((m - a.t_parado) / m * 100)|round|int }}%</div>
+      <div class="l">Canto {{ nome }} em movimento</div>
+      <div class="d">frente {{ (a.t_frente / m * 100)|round|int }}% · trás {{ (a.t_tras / m * 100)|round|int }}% ·
+        esq {{ (a.t_esq / m * 100)|round|int }}% · dir {{ (a.t_dir / m * 100)|round|int }}%<br>
+        medido em {{ a.medido_pct }}% do vídeo · {{ a.distancia_corpos }} corpos percorridos</div></div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if preset.video_url %}
+  <video class="player" id="presetVid" src="{{ preset.video_url }}" controls preload="metadata"></video>
+  {% elif preset.video_em_processamento %}
+  <div class="painel nota">⏳ O vídeo anotado está sendo re-processado (nova versão do detector).
+    Os eventos abaixo já estão na ordem cronológica; recarregue a página em alguns minutos.</div>
+  {% endif %}
+
+  <div class="timeline" id="timeline"></div>
+  <div class="eixo"><span>0:00</span><span>{{ (preset.duracao_s / 60)|round(1) }} min</span></div>
+
+  <div class="painel rolagem">
+    <table class="tabela">
+      <thead><tr><th>Tempo</th><th>Boxeador</th><th>Braço</th><th class="num">Vel (ombros/f)</th>
+        <th class="num">Ext (ombros)</th><th class="num">Dist. cabeça opp.</th></tr></thead>
+      <tbody id="evbody"></tbody>
+    </table>
+  </div>
+  <p class="nota">Clique em uma linha ou nas barras da linha do tempo para pular o vídeo até o golpe.
+    Velocidade e extensão normalizadas pela largura dos ombros.</p>
+</section>
+{% endif %}
+
+<section class="bloco" id="clipe">
+  <h2 class="bloco-titulo">Analisar novo clipe</h2>
+  <p class="bloco-sub">Funciona melhor com câmera lateral e os 2 boxeadores visíveis. Um clipe de
+    12 s leva ~2–3 min para processar (CPU/MPS local); a barra acompanha em tempo real.</p>
+  <div class="painel">
+    <div class="hero-acoes">
+      <input type="file" id="file" accept="video/mp4,video/webm,video/quicktime,video/x-m4v" class="muted">
+      <button class="btn btn-azul btn-sm" id="btnUpload" onclick="upload()">Analisar clipe</button>
+      <button class="btn btn-fantasma btn-sm" id="btnDemo" onclick="demo()">Usar clipe de exemplo (12 s)</button>
+    </div>
+    <div id="job" class="hidden">
+      <div class="pbar"><div id="jobBar"></div></div>
+      <div class="pmeta"><span id="jobLabel">Enfileirado…</span><span id="jobPct">0%</span></div>
+      <div class="pmeta"><span id="jobFrames"></span><span id="jobPunches"></span></div>
+      <div id="jobErr" class="erro hidden"></div>
+    </div>
+  </div>
+</section>
+
+<section class="bloco hidden" id="jobResult">
+  <h2 class="bloco-titulo">Resultado — <span id="jrTitle"></span></h2>
+  <div class="stats" id="jrStats"></div>
+  <video class="player" id="jrVid" controls preload="metadata"></video>
+  <div class="timeline" id="jrTimeline"></div>
+  <div class="eixo" id="jrAxis"></div>
+  <div class="painel rolagem">
+    <table class="tabela">
+      <thead><tr><th>Tempo</th><th>Boxeador</th><th>Braço</th><th class="num">Vel</th><th class="num">Ext</th><th class="num">Dist.</th></tr></thead>
+      <tbody id="jrBody"></tbody>
+    </table>
+  </div>
+</section>
+
+<footer class="rodape">Boxing Vision · projeto de mestrado · YOLO11-pose + regras (Fase 1) · modo juiz (E1)</footer>
+{% endblock %}
+
+{% block scripts %}
 <script>
+// miniaturas: pula para ~30% do vídeo (no máx. 20 s) para não mostrar o quadro preto inicial
+document.querySelectorAll('video[data-thumb]').forEach(v =>
+  v.addEventListener('loadedmetadata', () => { v.currentTime = Math.min(20, v.duration * 0.3); }, { once: true }));
+
 const fmt = (s) => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`;
 const pill = (c) => `<span class="pill ${c}">${c}</span>`;
+const pular = (videoId, t) => { const v = document.getElementById(videoId); if (!v) return; v.currentTime = t; v.play(); };
 
 function renderEvents(tbodyId, videoId, events, fps) {
   const tb = document.getElementById(tbodyId);
-  tb.innerHTML = events.map((e, i) => {
+  tb.innerHTML = events.map(e => {
     const t = e.frame / fps;
-    return `<tr class="ev" data-t="${t}">
-      <td>${fmt(t)}</td><td>${pill(e.boxer)}</td>
+    return `<tr class="clicavel" data-t="${t}">
+      <td class="mono">${fmt(t)}</td><td>${pill(e.boxer)}</td>
       <td>${e.braco === 'L' ? 'Esquerdo' : 'Direito'}</td>
-      <td>${e.vel}</td><td>${e.ext}</td><td>${e.dist_cabeca_opp ?? '—'}</td></tr>`;
+      <td class="num">${e.vel}</td><td class="num">${e.ext}</td><td class="num">${e.dist_cabeca_opp ?? '—'}</td></tr>`;
   }).join('');
-  tb.querySelectorAll('tr.ev').forEach(tr =>
-    tr.onclick = () => { const v = document.getElementById(videoId); if (!v) return; v.currentTime = tr.dataset.t; v.play(); });
+  tb.querySelectorAll('tr').forEach(tr => tr.onclick = () => pular(videoId, tr.dataset.t));
 }
 
 function renderTimeline(tlId, videoId, events, fps, dur) {
@@ -191,8 +193,7 @@ function renderTimeline(tlId, videoId, events, fps, dur) {
   const max = Math.max(...buckets, 1);
   tl.innerHTML = buckets.map((b, i) =>
     `<div class="bar" style="height:${Math.max(4, 100*b/max)}%" data-t="${i/NB*dur}"></div>`).join('');
-  tl.querySelectorAll('.bar').forEach(bar =>
-    bar.onclick = () => { const v = document.getElementById(videoId); if (!v) return; v.currentTime = bar.dataset.t; v.play(); });
+  tl.querySelectorAll('.bar').forEach(bar => bar.onclick = () => pular(videoId, bar.dataset.t));
 }
 
 function statCard(n, cls, label, detail) {
@@ -204,13 +205,15 @@ function renderResult(payload, videoUrl, title) {
   document.getElementById('jobResult').classList.remove('hidden');
   document.getElementById('jrTitle').textContent = title;
   const s = payload.slots;
+  const detalhe = (x) => `${x.golpes_L}E/${x.golpes_R}D · ` +
+    (x.por_cor_pct != null ? `cor ${x.por_cor_pct}% · posição ${x.por_posicao_pct}%` : `cov ${x.cobertura_pct}%`);
+  const rotulo = (x) => ['Vermelho', 'Azul'].includes(x.slot) ? `Canto ${x.slot}` : `Boxeador ${x.slot}`;
   document.getElementById('jrStats').innerHTML =
-    statCard(payload.total, 'red', 'Golpes totais', `${payload.por_minuto}/min`) +
-    statCard('A', 'red', 'Boxeador A', `${s[0].golpes_total} · ${s[0].golpes_L}E/${s[0].golpes_R}D · cov ${s[0].cobertura_pct}%` + (s[0].hidden != null ? ` · oculto ${s[0].hidden}f` : '')) +
-    statCard('B', 'blue', 'Boxeador B', `${s[1].golpes_total} · ${s[1].golpes_L}E/${s[1].golpes_R}D · cov ${s[1].cobertura_pct}%` + (s[1].hidden != null ? ` · oculto ${s[1].hidden}f` : '')) +
+    statCard(payload.total, 'marca', 'Golpes totais', `${payload.por_minuto}/min`) +
+    statCard(s[0].golpes_total, 'vermelho', rotulo(s[0]), detalhe(s[0])) +
+    statCard(s[1].golpes_total, 'azul', rotulo(s[1]), detalhe(s[1])) +
     statCard(payload.duracao_s + 's', '', 'Duração', `${payload.frames} frames`);
-  const v = document.getElementById('jrVid');
-  v.src = videoUrl;
+  document.getElementById('jrVid').src = videoUrl;
   renderEvents('jrBody', 'jrVid', payload.eventos, payload.fps);
   renderTimeline('jrTimeline', 'jrVid', payload.eventos, payload.fps, payload.duracao_s);
   document.getElementById('jrAxis').innerHTML = `<span>0:00</span><span>${fmt(payload.duracao_s)}</span>`;
@@ -220,17 +223,20 @@ function renderResult(payload, videoUrl, title) {
 // ---- luta pré-analisada ----
 {% if preset %}
 const P = {{ preset | tojson }};
-if (P.video_url) {
-  renderTimeline('timeline', 'presetVid', P.eventos, P.fps, P.duracao_s);
-}
+if (P.video_url) renderTimeline('timeline', 'presetVid', P.eventos, P.fps, P.duracao_s);
 renderEvents('evbody', 'presetVid', P.eventos, P.fps);
 {% endif %}
 
 // ---- job de análise ----
 let pollTimer = null;
+const botoes = (on) => ['btnUpload', 'btnDemo'].forEach(id => document.getElementById(id).disabled = !on);
+function erroJob(msg) {
+  const el = document.getElementById('jobErr');
+  el.classList.remove('hidden'); el.textContent = msg;
+}
 
 function setJob(pct, label, frames, punches) {
-  document.getElementById('job').style.display = 'block';
+  document.getElementById('job').classList.remove('hidden');
   document.getElementById('jobBar').style.width = pct + '%';
   document.getElementById('jobPct').textContent = pct + '%';
   document.getElementById('jobLabel').textContent = label;
@@ -243,39 +249,31 @@ function poll(jobId) {
     if (j.status === 'running' || j.status === 'queued') {
       setJob(Math.round(j.pct || 0), j.status === 'queued' ? 'Enfileirado…' : 'Analisando…',
              j.frame ? `frame ${j.frame}${j.total ? '/' + j.total : ''}` : '',
-             j.punches ? `🥊 ${j.punches} golpes até agora` : '');
+             j.punches ? `${j.punches} golpes até agora` : '');
       return;
     }
     clearInterval(pollTimer);
-    document.getElementById('btnUpload').disabled = false;
-    document.getElementById('btnDemo').disabled = false;
+    botoes(true);
     if (j.status === 'done') {
-      setJob(100, 'Concluído', `${j.frames} frames`, `🥊 ${j.total} golpes`);
+      setJob(100, 'Concluído', `${j.frames} frames`, `${j.total} golpes`);
       renderResult(j, j.video_url, j.video ? j.video.split('/').pop() : 'clipe');
     } else {
-      document.getElementById('jobErr').style.display = 'block';
-      document.getElementById('jobErr').textContent = 'Erro: ' + (j.message || 'desconhecido');
+      erroJob('Erro: ' + (j.message || 'desconhecido'));
     }
   }).catch(() => {});
 }
 
 function start(body) {
-  document.getElementById('jobErr').style.display = 'none';
-  document.getElementById('btnUpload').disabled = true;
-  const bd = document.getElementById('btnDemo'); if (bd) bd.disabled = true;
+  document.getElementById('jobErr').classList.add('hidden');
+  botoes(false);
   fetch('/api/analyze', { method: 'POST', body })
     .then(r => r.json().then(d => ({ ok: r.ok, d })))
     .then(({ ok, d }) => {
-      if (!ok) { throw new Error(d.error || 'falha na requisição'); }
+      if (!ok) throw new Error(d.error || 'falha na requisição');
       setJob(0, 'Enfileirado…', '', '');
       pollTimer = setInterval(() => poll(d.job_id), 1000);
     })
-    .catch(e => {
-      document.getElementById('btnUpload').disabled = false;
-      const bd = document.getElementById('btnDemo'); if (bd) bd.disabled = false;
-      document.getElementById('jobErr').style.display = 'block';
-      document.getElementById('jobErr').textContent = e.message;
-    });
+    .catch(e => { botoes(true); erroJob(e.message); });
 }
 
 function upload() {
@@ -288,5 +286,4 @@ function demo() {
   const fd = new FormData(); fd.append('demo', 'demo12s.mp4'); start(fd);
 }
 </script>
-</body>
-</html>
+{% endblock %}

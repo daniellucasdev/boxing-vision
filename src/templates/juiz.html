@@ -1,0 +1,165 @@
+{% extends "base.html" %}
+{% block titulo %}Modo juiz — Boxing Vision{% endblock %}
+{% block head %}<link rel="stylesheet" href="{{ url_for('static', filename='juiz.css') }}">{% endblock %}
+
+{% block conteudo %}
+<main class="pagina">
+
+  <!-- ===== cadastro: escolher vídeo + atleta/round ===== -->
+  <section id="vCadastro" class="hidden">
+    <div class="kicker">Modo juiz · E1</div>
+    <h1 class="titulo-pagina">Nova anotação</h1>
+    <p class="bloco-sub">1 atleta × 1 round, assistido a 0,125× (8× mais devagar), como na v1.0 —
+      agora cada tecla grava o instante exato, e a linha da planilha sai pronta.</p>
+
+    <div id="filaAnotacoes" class="hidden">
+      <h2 class="passo">Continuar anotando</h2>
+      <div class="trilho" id="trilhoAnotacoes"></div>
+    </div>
+
+    <h2 class="passo"><span>1</span> Vídeo da luta</h2>
+    <div class="trilho" id="trilhoVideos"></div>
+    <input type="file" id="arquivoLuta" accept="video/mp4,video/quicktime,video/x-m4v,video/webm" hidden>
+    <div id="envio" class="hidden">
+      <div class="pbar"><div id="envioBarra"></div></div>
+      <div class="pmeta"><span id="envioRotulo">Enviando…</span><span id="envioPct">0%</span></div>
+    </div>
+    <p class="nota">Vídeos de <code>data/</code> e <code>data/lutas/</code>. Para lutas muito grandes,
+      copie o arquivo direto para <code>data/lutas/</code> e recarregue. Use o round inteiro, sem cortes de highlight.</p>
+
+    <h2 class="passo"><span>2</span> Atleta e round</h2>
+    <div class="painel">
+      {% if tem_base %}
+      <div class="busca"><input id="buscaBase" placeholder="Buscar na base MHdS por atleta, oponente ou país — preenche tudo e liga a comparação" autocomplete="off"></div>
+      <div class="resultados" id="resultadosBase"></div>
+      {% else %}
+      <p class="nota" style="margin:0 0 16px">Base MHdS não encontrada. Gere com
+        <code>python src/base_mhds.py --xlsx "data/referencia/Análises MHdS 2026-atual.xlsx"</code>
+        para buscar atletas e comparar com a v1.0.</p>
+      {% endif %}
+      <div id="formCadastro"></div>
+    </div>
+
+    <div class="rodape-cadastro">
+      <button id="btnComecar" class="btn btn-azul" disabled>Começar anotação</button>
+      <span id="cadastroDica" class="muted">Escolha o vídeo e informe atleta e round.</span>
+    </div>
+  </section>
+
+  <!-- ===== anotação ===== -->
+  <section id="vAnotacao" class="hidden">
+    <div class="topo-anotacao">
+      <a href="/juiz" class="voltar" title="Voltar às anotações">←</a>
+      <div class="topo-texto">
+        <div class="kicker">Modo juiz</div>
+        <h1 id="tituloAnotacao" class="titulo-pagina"></h1>
+        <div id="subtituloAnotacao" class="muted"></div>
+      </div>
+      <div id="statusSalvo" class="status-salvo">—</div>
+    </div>
+
+    <div class="grade-juiz">
+      <div class="col-principal">
+        <div class="palco">
+          <video id="video" muted playsinline preload="auto"></video>
+          <div class="hud-estado" id="hudEstado"></div>
+          <div class="hud-vel mono" id="hudVel"></div>
+          <div class="hud-flash" id="hudFlash"></div>
+          <div class="aviso-codec hidden" id="avisoCodec">
+            Este vídeo não pode ser reproduzido no navegador (formato incompatível). Converta para
+            H.264 (ex.: <code>ffmpeg -i entrada.mp4 -c:v libx264 -crf 18 saida.mp4</code>) e envie de novo.
+          </div>
+        </div>
+
+        <div class="controles">
+          <button class="btn btn-fantasma btn-ico" data-k="z" title="−2 s (Z)">⟲ 2s</button>
+          <button class="btn btn-fantasma btn-ico" data-k="," title="Quadro anterior (,)">◂</button>
+          <button class="btn btn-branco btn-ico tocar" id="btnTocar" data-k=" " title="Tocar/pausar (espaço)">▶</button>
+          <button class="btn btn-fantasma btn-ico" data-k="." title="Próximo quadro (.)">▸</button>
+          <button class="btn btn-fantasma btn-ico" data-k="x" title="+2 s (X)">2s ⟳</button>
+          <div class="tempos">
+            <div><span class="muted">vídeo</span> <b class="mono" id="tempoVideo">0:00.000</b></div>
+            <div><span class="muted">round</span> <b class="mono" id="tempoRound">—</b></div>
+          </div>
+          <div class="velocidades" id="velocidades" title="Velocidade ([ e ])"></div>
+        </div>
+
+        <canvas id="cvDetalhe" class="cv-detalhe" title="Detalhe (±8 s) — clique para ir ao instante"></canvas>
+        <canvas id="cvGeral" class="cv-geral" title="Vídeo inteiro — clique ou arraste para navegar"></canvas>
+        <div class="legenda-cores">
+          <span style="--c: var(--st-deslocamento)">Deslocamento</span>
+          <span style="--c: var(--st-ataque)">Ataque</span>
+          <span style="--c: var(--st-defesa)">Defesa</span>
+          <span style="--c: var(--st-pausa)">Pausa · clinch</span>
+          <span class="fora">Fora (replay)</span>
+        </div>
+
+        <div class="teclado">
+          <div class="grupo">
+            <h4>Estado <small>exclusivos — o deslocamento é tudo que não é ataque, defesa ou pausa</small></h4>
+            <div class="teclas">
+              <button class="tecla" data-k="1" data-estado="deslocamento" style="--c: var(--st-deslocamento)"><kbd>1</kbd>Deslocamento</button>
+              <button class="tecla" data-k="ArrowLeft" data-estado="deslocamento" data-dir="esq" style="--c: var(--st-deslocamento)"><kbd>←</kbd>esq.</button>
+              <button class="tecla" data-k="ArrowRight" data-estado="deslocamento" data-dir="dir" style="--c: var(--st-deslocamento)"><kbd>→</kbd>dir.</button>
+              <button class="tecla" data-k="ArrowUp" data-estado="deslocamento" data-dir="frente" style="--c: var(--st-deslocamento)"><kbd>↑</kbd>frente</button>
+              <button class="tecla" data-k="ArrowDown" data-estado="deslocamento" data-dir="tras" style="--c: var(--st-deslocamento)"><kbd>↓</kbd>trás</button>
+              <button class="tecla" data-k="2" data-estado="ataque" style="--c: var(--st-ataque)"><kbd>2</kbd>Ataque</button>
+              <button class="tecla" data-k="3" data-estado="defesa" style="--c: var(--st-defesa)"><kbd>3</kbd>Defesa</button>
+              <button class="tecla" data-k="4" data-estado="pausa" style="--c: var(--st-pausa)"><kbd>4</kbd>Pausa · clinch</button>
+              <button class="tecla" data-k="0" data-estado="fora" style="--c: #8a94b0"><kbd>0</kbd>Fora · replay</button>
+              <button class="tecla" data-k="Enter" data-estado="fim" style="--c: var(--brand)"><kbd>↵</kbd>Fim do round</button>
+            </div>
+            <p class="nota">Setas = direção <b>do ponto de vista do atleta</b> (olhando o oponente).</p>
+          </div>
+          <div class="grupo">
+            <h4>Ações <small>entram no estado certo automaticamente</small></h4>
+            <div class="teclas">
+              <button class="tecla" data-k="g" style="--c: var(--st-ataque)"><kbd>G</kbd>Golpe</button>
+              <button class="tecla" data-k="f" style="--c: var(--st-ataque)"><kbd>F</kbd>Finta</button>
+              <span class="sep"></span>
+              <button class="tecla" data-k="b" style="--c: var(--st-defesa)"><kbd>B</kbd>Bloqueio</button>
+              <button class="tecla" data-k="e" style="--c: var(--st-defesa)"><kbd>E</kbd>Esquiva</button>
+              <button class="tecla" data-k="r" style="--c: var(--st-defesa)"><kbd>R</kbd>Guarda</button>
+              <span class="sep"></span>
+              <button class="tecla" data-k="Backspace" style="--c: var(--err)"><kbd>⌫</kbd>Desfazer</button>
+            </div>
+            <p class="nota">Espaço tocar/pausar · <kbd>Z</kbd>/<kbd>X</kbd> ±2 s · <kbd>,</kbd>/<kbd>.</kbd> quadro a quadro · <kbd>[</kbd>/<kbd>]</kbd> velocidade</p>
+          </div>
+        </div>
+
+        <div class="painel">
+          <h3>Marcas <span class="muted" id="nMarcas"></span></h3>
+          <div class="rolagem lista-marcas">
+            <table class="tabela">
+              <thead><tr><th>Vídeo</th><th>Round</th><th>Marca</th><th></th></tr></thead>
+              <tbody id="corpoMarcas"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <aside class="col-lateral">
+        <div class="painel" id="pResumo"></div>
+        <div class="painel" id="pComparacao"></div>
+        <div class="painel" id="pAvisos"></div>
+        <div class="painel">
+          <h3>Exportar</h3>
+          <div class="exportar" id="exportar"></div>
+        </div>
+        <details class="painel" id="pDados">
+          <summary><h3>Dados do atleta</h3></summary>
+          {% if tem_base %}
+          <div class="busca"><input id="buscaBase2" placeholder="Ligar a uma linha da base MHdS…" autocomplete="off"></div>
+          <div class="resultados" id="resultadosBase2"></div>
+          {% endif %}
+          <div id="formAnotacao"></div>
+        </details>
+      </aside>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='juiz.js') }}"></script>
+{% endblock %}
