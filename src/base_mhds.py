@@ -5,6 +5,10 @@ Lê a aba "Olimpico e Pre-2024" da planilha original só com a biblioteca padrã
 o clinch passa a contar como pausa:
     t_pausa_v2 = t_clinch + t_pausa      n_pausa_v2 = n_clinch + n_pausa
 
+A aba "Pré olímpico 2020" (eliminatória europeia para Tóquio 2020) só tem tempos e usa as
+categorias antigas: vai para um CSV à parte (rounds_2020.csv), com as contagens vazias e
+luta_id a partir de 1001, para comparar ciclos sem misturar com a base 2023–2024.
+
 Normalizações: espaços extras; Vermleho → Vermelho; Vencedo/Ganhador → Vencedor;
 fases (R32, Oitavas, Quartas, Semifinal, Final); categorias sem "Peso" e sem a
 faixa de kg entre parênteses, com o código da aba "Códigos" (numeração por sexo).
@@ -12,7 +16,7 @@ t_total é recalculado como a soma dos 5 tempos.
 
 CLI:
   python src/base_mhds.py --xlsx "data/referencia/Análises MHdS 2026-atual.xlsx"
-  → data/referencia/rounds_2023_2024.csv
+  → data/referencia/rounds_2023_2024.csv e data/referencia/rounds_2020.csv
 
 Programático (usado pelo modo juiz para comparar com a base):
   from base_mhds import carregar_base
@@ -31,7 +35,9 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
 CSV_PADRAO = REPO / "data" / "referencia" / "rounds_2023_2024.csv"
+CSV_2020 = REPO / "data" / "referencia" / "rounds_2020.csv"
 ABA = "Olimpico e Pre-2024"
+ABA_2020 = "Pré olímpico 2020"
 
 _NS = {
     "m": "http://schemas.openxmlformats.org/spreadsheetml/2006/main",
@@ -46,6 +52,12 @@ _COLUNAS = {
     "L": "t_deslocamento", "M": "t_ataque", "N": "t_defesa", "O": "t_clinch", "P": "t_pausa",
     "Q": "t_total_planilha",
     "R": "n_deslocamento", "S": "n_ataque", "T": "n_defesa", "U": "n_clinch", "V": "n_pausa",
+}
+# aba de 2020: oponente e país do oponente trocados de lugar, sem contagens
+_COLUNAS_2020 = {
+    "A": "round", "B": "pais", "C": "atleta", "D": "sexo", "E": "categoria", "F": "competicao",
+    "G": "fase", "H": "resultado", "I": "cor", "J": "oponente", "K": "pais_oponente",
+    "L": "t_deslocamento", "M": "t_ataque", "N": "t_defesa", "O": "t_clinch", "P": "t_pausa",
 }
 TEMPOS = ("t_deslocamento", "t_ataque", "t_defesa", "t_clinch", "t_pausa")
 CONTAGENS = ("n_deslocamento", "n_ataque", "n_defesa", "n_clinch", "n_pausa")
@@ -62,6 +74,7 @@ _FASES = {
     "quartas de final": "Quartas", "quartas de finais": "Quartas",
     "semi-final": "Semifinal", "semi-finais": "Semifinal",
     "final": "Final", "finais": "Final",
+    "semi final": "Semifinal",
 }
 _CATEGORIAS = {
     "Masculino": ["Ligeiro", "Super Mosca", "Galo", "Super Galo", "Super Pena", "Leve",
@@ -156,6 +169,36 @@ def converter(xlsx: Path) -> tuple[list[dict], int]:
     return linhas, descartadas
 
 
+def converter_2020(xlsx: Path) -> tuple[list[dict], int]:
+    """Aba de 2020 → linhas no formato do CSV principal (contagens vazias)."""
+    linhas, descartadas = [], 0
+    lutas: dict[tuple, int] = {}
+    for b in _linhas_xlsx(xlsx, ABA_2020)[1:]:
+        r = {campo: _limpa(b.get(letra, "")) for letra, campo in _COLUNAS_2020.items()}
+        try:
+            r["round"] = int(float(r["round"]))
+            for campo in TEMPOS:
+                r[campo] = round(float(r[campo]), 2)
+        except ValueError:
+            descartadas += 1
+            continue
+        r["cor"] = r["cor"].capitalize()
+        r["resultado"] = "Vencedor" if r["resultado"].lower().startswith("vit") else "Perdedor"
+        r["fase"] = _FASES.get(r["fase"].lower(), r["fase"])
+        r["categoria"] = _categoria(r["categoria"]).replace("Meio médio", "Meio Médio")
+        r["categoria_cod"] = ""
+        for campo in (*CONTAGENS, "n_pausa_v2"):
+            r[campo] = ""
+        r["t_total"] = round(sum(r[c] for c in TEMPOS), 2)
+        r["t_pausa_v2"] = round(r["t_clinch"] + r["t_pausa"], 2)
+        chave = (r["competicao"], r["fase"], r["categoria"],
+                 tuple(sorted((sem_acento(r["atleta"]), sem_acento(r["oponente"])))))
+        r["luta_id"] = lutas.setdefault(chave, 1001 + len(lutas))
+        r["fonte"] = ABA_2020
+        linhas.append({k: r[k] for k in CAMPOS_CSV})
+    return linhas, descartadas
+
+
 def chave_base(linha: dict) -> str:
     """Identifica 1 linha da base (atleta × round × luta) para o modo juiz guardar a referência."""
     return f"{linha['competicao']}|{linha['fase']}|{linha['atleta']}|{linha['oponente']}|{linha['round']}"
@@ -195,6 +238,13 @@ def main() -> None:
         w = csv.DictWriter(f, fieldnames=CAMPOS_CSV)
         w.writeheader()
         w.writerows(linhas)
+    l2020, d2020 = converter_2020(Path(args.xlsx))
+    with open(CSV_2020, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=CAMPOS_CSV)
+        w.writeheader()
+        w.writerows(l2020)
+    print(f"{len(l2020)} rounds de 2020 → {CSV_2020}  ({d2020} descartadas, "
+          f"{len({r['luta_id'] for r in l2020})} lutas, só tempos)")
 
     sem_cod = sorted({(r["sexo"], r["categoria"]) for r in linhas if r["categoria_cod"] == ""})
     fora = [r for r in linhas if not 175 <= r["t_total"] <= 185]
