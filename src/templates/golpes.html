@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block titulo %}Revisão de golpes — Boxing Vision{% endblock %}
+{% block head %}
+<link rel="stylesheet" href="{{ url_for('static', filename='juiz.css') }}">
+<style>
+  .palco canvas.sobre { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+  .ficha { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; font-size: 13.5px; }
+  .ficha dt { color: var(--muted); }
+  .ficha dd { font-weight: 700; }
+  .cor-Vermelho { color: var(--vermelho); } .cor-Azul { color: var(--azul); }
+  .progresso { height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 8px 0 4px; }
+  .progresso div { height: 100%; background: var(--ok); }
+  .contagem { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; font-size: 13px; }
+  .tecla.sugestao { border-style: dashed; border-color: var(--c); }
+  .tecla.escolhida { border-color: var(--ok); color: #fff; background: color-mix(in srgb, var(--ok) 22%, var(--surface-2)); }
+  .filtros { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 14px; font-size: 13px; }
+  .filtros select { background: var(--surface); color: var(--fg); border: 1px solid var(--line-strong);
+                    border-radius: var(--radius); padding: 6px 8px; font: inherit; }
+</style>
+{% endblock %}
+
+{% block conteudo %}
+<main class="pagina">
+  <div class="kicker">Tipo de golpe · gabarito</div>
+  <h1 class="titulo-pagina">Revisão rápida de golpes</h1>
+  <p class="bloco-sub">Cada golpe que o detector achou passa em laço de ~1 s a 0,5×. Diga o tipo (e a mão),
+    ou se foi finta / não foi golpe. A sugestão automática aparece tracejada: <kbd>Enter</kbd> aceita.</p>
+
+  <div class="filtros">
+    <label>Luta <select id="selLuta"></select></label>
+    <label>Atleta <select id="selCor"><option value="">os dois</option><option>Vermelho</option><option>Azul</option></select></label>
+    <label>Round <select id="selRound"><option value="">todos</option><option>1</option><option>2</option><option>3</option></select></label>
+    <label><input type="checkbox" id="soPendentes" checked> só os não revisados</label>
+  </div>
+
+  <div id="semLutas" class="painel hidden">
+    Nenhuma luta com golpes classificados. Rode o pipeline e depois
+    <code>python src/golpes.py --resultado outputs/lutas/&lt;luta&gt;</code>.
+  </div>
+
+  <div class="grade-juiz" id="grade">
+    <div class="col-principal">
+      <div class="palco">
+        <video id="video" muted playsinline preload="auto"></video>
+        <canvas class="sobre" id="cvSobre"></canvas>
+        <div class="hud-estado" id="hud"></div>
+        <div class="hud-flash" id="hudFlash"></div>
+      </div>
+
+      <div class="controles">
+        <button class="btn btn-fantasma btn-ico" data-k="ArrowLeft" title="Golpe anterior (←)">◂ anterior</button>
+        <button class="btn btn-branco btn-ico tocar" data-k=" " title="Pausar/repetir (espaço)">▶</button>
+        <button class="btn btn-fantasma btn-ico" data-k="ArrowRight" title="Próximo golpe (→)">próximo ▸</button>
+        <div class="tempos"><div><span class="muted">golpe</span> <b class="mono" id="posicao">—</b></div></div>
+      </div>
+
+      <div class="teclado">
+        <div class="grupo">
+          <h4>Tipo <small>mão da frente/de trás pela guarda do atleta (ortodoxo: frente = esquerda)</small></h4>
+          <div class="teclas" id="teclas">
+            <button class="tecla" data-k="j" data-r="jab" style="--c: var(--st-ataque)"><kbd>J</kbd>Jab</button>
+            <button class="tecla" data-k="d" data-r="direto" style="--c: var(--st-ataque)"><kbd>D</kbd>Direto</button>
+            <button class="tecla" data-k="c" data-r="cruzado_frente" style="--c: var(--st-ataque)"><kbd>C</kbd>Cruzado frente</button>
+            <button class="tecla" data-k="C" data-r="cruzado_tras" style="--c: var(--st-ataque)"><kbd>⇧C</kbd>Cruzado trás</button>
+            <button class="tecla" data-k="h" data-r="gancho_frente" style="--c: var(--st-ataque)"><kbd>H</kbd>Gancho frente</button>
+            <button class="tecla" data-k="H" data-r="gancho_tras" style="--c: var(--st-ataque)"><kbd>⇧H</kbd>Gancho trás</button>
+            <span class="sep"></span>
+            <button class="tecla" data-k="f" data-r="finta" style="--c: var(--st-defesa)"><kbd>F</kbd>Finta</button>
+            <button class="tecla" data-k="n" data-r="nao_golpe" style="--c: var(--err)"><kbd>N</kbd>Não é golpe</button>
+            <button class="tecla" data-k="?" data-r="incerto" style="--c: var(--dim)"><kbd>?</kbd>Não dá para ver</button>
+            <span class="sep"></span>
+            <button class="tecla" data-k="Enter" style="--c: var(--ok)"><kbd>↵</kbd>Aceitar sugestão</button>
+            <button class="tecla" data-k="Backspace" style="--c: var(--err)"><kbd>⌫</kbd>Apagar rótulo</button>
+          </div>
+          <p class="nota">Cruzado = arco horizontal (hook) · gancho = de baixo para cima (uppercut) ·
+            o quadro destaca o atleta e o braço que o detector viu · <kbd>←</kbd>/<kbd>→</kbd> navegar · espaço pausa.</p>
+        </div>
+      </div>
+    </div>
+
+    <aside class="col-lateral">
+      <div class="painel">
+        <h3>Golpe</h3>
+        <dl class="ficha" id="ficha"></dl>
+      </div>
+      <div class="painel">
+        <h3>Progresso <span class="muted mono" id="nRevisados"></span></h3>
+        <div class="progresso"><div id="barra" style="width:0"></div></div>
+        <div class="contagem" id="contagem"></div>
+      </div>
+    </aside>
+  </div>
+</main>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='golpes.js') }}"></script>
+{% endblock %}
