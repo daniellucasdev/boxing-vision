@@ -38,10 +38,12 @@ esquerda/direita** (do ponto de vista do atleta) e **para frente/trás** em rela
 | **Identidade pela cor do canto** (Vermelho/Azul, medida no colete, calção e luvas) + detector de cortes de câmera (`src/identidade.py`) | ✅ ~3 erros em 40 quadros nos rounds; taxa de erro na luta inteira pendente |
 | Contador de golpes por regras (sem tipo de golpe), por atleta e braço | ✅ executado em Edwards × Lenzi (Olimpíadas 2024); validação humana pendente |
 | Interface web (estilo Netflix, paleta azul) | ✅ |
-| Base MHdS em CSV, com colunas v2.0 (`src/base_mhds.py`) | ✅ 786 rounds, 132 lutas |
+| Base MHdS em CSV, com colunas v2.0 (`src/base_mhds.py`) | ✅ 786 rounds, 132 lutas (2023–2024) + 248 rounds, 49 lutas do pré-olímpico 2020 (só tempos) |
+| Estudo da base (`src/estudo_base.py` → [docs/estudo_base.md](docs/estudo_base.md)) | ✅ |
 | **Modo juiz**: anotação manual com timestamps → planilha v2.0 + comparação com a base | ✅ ferramenta pronta; validação (anotar rounds da base) pendente |
 | **Direção do deslocamento** automática: câmera descontada, frente/trás e esquerda/direita do atleta (`src/deslocamento.py`) | ✅ conferida a olho; comparação com o modo juiz pendente. Mede só com os pés no quadro (~20–28% do round) |
 | **4 estados automáticos** por regras → pré-anotação no modo juiz (`src/estados.py`) | ✅ médias batem com a base nas 2 lutas testadas; por round, erro de ~6 s em ataque/defesa e ~15 s em pausa/deslocamento. Defesa sem subtipo, golpe sem separar finta |
+| **Tipo de golpe** (jab, direto, cruzado, gancho × mão da frente/de trás) por regras sobre a pose (`src/golpes.py`) + revisão rápida por golpe na web (`/golpes`) | 🔶 regras prontas, ~22% dos golpes com tipo; jab e direto parecem bons a olho, gancho fraco; sem gabarito ainda: a base não tem tipo de golpe ([avaliação](docs/avaliacao_golpes.md)) |
 | Perfil do lutador | ⏳ planejado ([plano](docs/plano_v2.md)) |
 
 ## Roadmap
@@ -52,16 +54,18 @@ esquerda/direita** (do ponto de vista do atleta) e **para frente/trás** em rela
 - [ ] **E0:** ~~base MHdS em CSV por script~~ ✅; Python ≥ 3.10; vídeos completos das lutas da base
 - [x] **E1:** *modo juiz* na web: anotação a 0,125× com timestamps, exportando no layout da planilha
   (falta o critério de pronto: anotar rounds da base e comparar)
-- [ ] **E2:** estudo da base (pace por categoria/sexo/round, agrupamentos de estilo), em paralelo
+- [x] **E2:** estudo da base ([docs/estudo_base.md](docs/estudo_base.md)): ritmo por sexo e round,
+  ciclos 2020 × 2023–24, vencedor × perdedor, confiabilidade da anotação manual, estilos
 - [x] **E3:** identidade por cor do colete (azul/vermelho) e cortes de câmera; rounds marcados no
   modo juiz (as repetições da TV só aparecem nos intervalos; detecção automática fica para depois)
 - [x] **E4:** deslocamento: compensação de câmera + frente/trás/esquerda/direita (proporções do
   tempo com os pés visíveis; limiares a calibrar com o modo juiz)
 - [x] **E5:** 4 estados por regras → pré-anotação no modo juiz → planilha v2.0 (ataque e defesa
   sem subcategorias; precisão por round a melhorar na E6)
-- [ ] **E6:** modelo temporal (TCN/LSTM) sobre pose para ataque e defesa
+- [ ] **E6:** modelo temporal (TCN/LSTM) sobre pose para ataque e defesa; tipo de golpe (regras +
+  revisão prontas, falta o gabarito)
 - [ ] **E7:** perfil do lutador + relatório em texto (Claude)
-- [ ] **E8 (futuro):** tipo de golpe, golpe certo/errado, YOLO quantizado on-device (ESP32-S3)
+- [ ] **E8 (futuro):** golpe certo/errado, alvo, YOLO quantizado on-device (ESP32-S3)
 
 ## Dados
 
@@ -111,6 +115,9 @@ participa da medição.
 ```bash
 # E0: base de referência (uma vez, ou quando a planilha mudar)
 python src/base_mhds.py --xlsx "data/referencia/Análises MHdS 2026-atual.xlsx"
+
+# E2: estudo da base → docs/estudo_base.md e docs/figuras/e2/
+python src/estudo_base.py
 ```
 
 ### Modo juiz (E1)
@@ -124,7 +131,9 @@ preenche os dados e liga a comparação com a v1.0) e anote o round a 0,125×:
 | `2` `3` `4` | ataque, defesa, pausa (inclui clinch) |
 | `0` | fora: repetição da TV ou corte (não conta no tempo do round) |
 | `Enter` | fim do round |
-| `G` `F` | golpe, finta (abrem o estado de ataque se preciso) |
+| `G` `F` | golpe (sem tipo), finta (abrem o estado de ataque se preciso) |
+| `J` `D` | jab, direto (reto da mão da frente / de trás) |
+| `C` `⇧C` · `H` `⇧H` | cruzado (hook) e gancho (uppercut) da mão da frente / de trás |
 | `B` `E` `R` | bloqueio, esquiva, guarda (abrem o estado de defesa se preciso) |
 | `⌫` | desfazer · `espaço` tocar/pausar · `Z`/`X` ±2 s · `,`/`.` quadro a quadro · `[`/`]` velocidade |
 
@@ -147,6 +156,20 @@ python src/features.py --source data/video.mp4 --save
 # comparação com a base; --gravar salva as pré-anotações para abrir no modo juiz
 python src/estados.py --resultado outputs --rounds 49 289.2 529.3 --luta-id 94 \
     --video lutas/pan2023_final_92kg_lacruz_x_keno.mp4 --gravar
+
+# tipo de golpe por regras → outputs/lutas/<luta>/golpes.json (antes do estados.py: a
+# pré-anotação passa a levar o tipo); precisa do serie.npz com keypoints (pipeline de 2026-11-05+)
+python src/golpes.py --resultado outputs/lutas/pan2023_final_92kg_lacruz_x_keno
+
+# E5 × base, nas lutas listadas em src/lutas.py → docs/avaliacao_e5.md
+python src/avaliar_estados.py
+
+# tipo de golpe × golpes revisados na página /golpes → docs/avaliacao_golpes.md
+python src/avaliar_golpes.py
+
+# relatório de progresso em PDF → docs/relatorios/Frami2.0_RelatorioProgresso_vX.Y.Z.pdf
+# (versão em VERSAO no script: X = última etapa concluída, Y = revisão)
+python src/relatorio_progresso.py
 ```
 
 ### Interface web (demonstração)
@@ -162,6 +185,11 @@ python src/webapp.py --host 0.0.0.0 # acessível de outro aparelho na rede
 O início mostra a luta pré-analisada, as anotações em andamento e os vídeos disponíveis, e permite
 analisar clipes novos (upload ou clipe de exemplo de 12 s) com barra de progresso ao vivo.
 
+**Golpes** (`/golpes`): revisão rápida do tipo de golpe. Cada golpe detectado nas lutas de
+`src/lutas.py` passa em laço de ~1 s a 0,5×, com o atleta e o braço destacados; o revisor responde
+`J` `D` `C` `⇧C` `H` `⇧H` (tipo e mão), `F` finta, `N` não é golpe, `?` não dá para ver, ou `Enter`
+para aceitar a sugestão automática. Os rótulos vão para `data/golpes_revisados/` (fora do git).
+
 ## Estrutura
 
 ```
@@ -172,12 +200,18 @@ boxing-vision/
 │   ├── identidade.py    # E3: cor do canto pelo corpo + detector de cortes de câmera
 │   ├── deslocamento.py  # E4: movimento da câmera + direção do deslocamento
 │   ├── estados.py       # E5: 4 estados por regras → pré-anotação do modo juiz
+│   ├── golpes.py        # tipo de golpe (jab/direto/cruzado/gancho × mão) por regras + revisão
+│   ├── lutas.py         # lutas completas processadas (inícios dos rounds, luta_id na base)
+│   ├── avaliar_estados.py # E5 × base MHdS (MAE, ICC, Bland–Altman) → docs/avaliacao_e5.md
+│   ├── avaliar_golpes.py  # tipo de golpe × revisão (/golpes) → docs/avaliacao_golpes.md
+│   ├── relatorio_progresso.py # relatório de progresso versionado em PDF → docs/relatorios/
 │   ├── analyze.py       # job de análise p/ web (progress.json + result.json)
 │   ├── base_mhds.py     # E0: planilha MHdS (xlsx) → CSV com colunas v2.0
+│   ├── estudo_base.py   # E2: estatísticas da base → docs/estudo_base.md + figuras
 │   ├── anotacao.py      # E1: marcas do modo juiz → linha da planilha v2.0 + avisos
-│   ├── webapp.py        # interface web Flask (início + modo juiz + API)
-│   ├── static/          # app.css (visual), juiz.css + juiz.js (modo juiz)
-│   └── templates/       # base.html, index.html, juiz.html
+│   ├── webapp.py        # interface web Flask (início + modo juiz + revisão de golpes + API)
+│   ├── static/          # app.css (visual), juiz.css + juiz.js (modo juiz), golpes.js (revisão)
+│   └── templates/       # base.html, index.html, juiz.html, golpes.html
 ├── scripts/
 │   └── start_web.command  # inicia a web (duplo-clique no Finder)
 ├── docs/
