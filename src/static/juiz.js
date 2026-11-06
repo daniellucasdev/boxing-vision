@@ -1,6 +1,7 @@
 // Modo juiz (E1) — anotação temporal de 1 atleta × 1 round.
 //
-// Marcas: {t, tipo: 'estado', estado, dir} | {t, tipo: 'acao', acao}, com t em segundos do vídeo.
+// Marcas: {t, tipo: 'estado', estado, dir} | {t, tipo: 'acao', acao, golpe?, mao?}, com t em segundos
+// do vídeo. golpe = jab | direto | cruzado | gancho; mao = frente | tras (guarda do atleta).
 // O resumo (linha da planilha v2.0, comparação com a base MHdS, avisos) é calculado no servidor
 // (src/anotacao.py) a cada salvamento; aqui só desenhamos e registramos as marcas.
 
@@ -14,6 +15,13 @@ const NOME_ESTADO = { deslocamento: 'Deslocamento', ataque: 'Ataque', defesa: 'D
 const ACOES = { golpe: 'ataque', finta: 'ataque', bloqueio: 'defesa', esquiva: 'defesa', guarda: 'defesa', defesa: 'defesa' };
 const NOME_ACAO = { golpe: 'Golpe', finta: 'Finta', bloqueio: 'Bloqueio', esquiva: 'Esquiva', guarda: 'Guarda', defesa: 'Defesa (auto)' };
 const LETRA_ACAO = { golpe: 'G', finta: 'F', bloqueio: 'B', esquiva: 'E', guarda: 'R', defesa: 'D' };
+const NOME_GOLPE = { jab: 'Jab', direto: 'Direto', cruzado: 'Cruzado', gancho: 'Gancho' };
+const NOME_MAO = { frente: 'da frente', tras: 'de trás' };
+const LETRA_GOLPE = { jab: 'J', direto: 'D', cruzado: 'C', gancho: 'H' };
+const nomeGolpe = (m) => NOME_GOLPE[m.golpe] + (m.golpe === 'cruzado' || m.golpe === 'gancho' ? ' ' + NOME_MAO[m.mao] : '');
+// trás leva apóstrofo na linha do tempo (C = cruzado da frente, C' = de trás)
+const letraAcao = (m) => m.golpe ? LETRA_GOLPE[m.golpe] + (m.mao === 'tras' && m.golpe !== 'direto' ? "'" : '')
+                                 : LETRA_ACAO[m.acao];
 const SETA = { esq: '←', dir: '→', frente: '↑', tras: '↓' };
 const NOME_DIR = { esq: 'esquerda', dir: 'direita', frente: 'frente', tras: 'trás' };
 const VELOCIDADES = [0.125, 0.25, 0.5, 1];
@@ -312,15 +320,15 @@ function marcarEstado(estado, dir = null) {
   flash(`${NOME_ESTADO[estado]}${dir ? ' ' + SETA[dir] + ' ' + NOME_DIR[dir] : ''}`, COR[estado]);
 }
 
-function marcarAcao(acao) {
+function marcarAcao(acao, golpe = null) {
   const t = agora();
   if (bloqueadoPeloFim(t)) return;
   const grupo = ACOES[acao], atual = estadoEm(t), novas = [];
   // atacar se deslocando conta como ataque: a ação abre o estado certo se preciso
   if (!atual || atual.estado !== grupo) novas.push({ t, tipo: 'estado', estado: grupo, dir: null });
-  novas.push({ t, tipo: 'acao', acao });
+  novas.push({ t, tipo: 'acao', acao, ...(golpe || {}) });
   adicionar(novas);
-  flash(`+ ${NOME_ACAO[acao]}`, COR[grupo]);
+  flash(`+ ${golpe ? nomeGolpe(golpe) : NOME_ACAO[acao]}`, COR[grupo]);
 }
 
 function desfazer() {
@@ -338,7 +346,7 @@ function remover(i) {
 }
 
 function descrever(m) {
-  return m.tipo === 'acao' ? NOME_ACAO[m.acao] : NOME_ESTADO[m.estado] + (m.dir ? ' ' + SETA[m.dir] : '');
+  return m.tipo === 'acao' ? (m.golpe ? nomeGolpe(m) : NOME_ACAO[m.acao]) : NOME_ESTADO[m.estado] + (m.dir ? ' ' + SETA[m.dir] : '');
 }
 
 function tocarPausar() { video.paused ? video.play() : video.pause(); }
@@ -366,6 +374,12 @@ const TECLAS = {
   '0': () => marcarEstado('fora'),
   'Enter': () => marcarEstado('fim'),
   'g': () => marcarAcao('golpe'), 'f': () => marcarAcao('finta'),
+  'j': () => marcarAcao('golpe', { golpe: 'jab', mao: 'frente' }),
+  'd': () => marcarAcao('golpe', { golpe: 'direto', mao: 'tras' }),
+  'c': () => marcarAcao('golpe', { golpe: 'cruzado', mao: 'frente' }),
+  'C': () => marcarAcao('golpe', { golpe: 'cruzado', mao: 'tras' }),
+  'h': () => marcarAcao('golpe', { golpe: 'gancho', mao: 'frente' }),
+  'H': () => marcarAcao('golpe', { golpe: 'gancho', mao: 'tras' }),
   'b': () => marcarAcao('bloqueio'), 'e': () => marcarAcao('esquiva'), 'r': () => marcarAcao('guarda'),
   'Backspace': desfazer,
   ' ': tocarPausar,
@@ -385,7 +399,9 @@ document.addEventListener('keydown', (ev) => {
   if (!S.doc || ev.target.closest?.('input, select, textarea')) return;
   if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'z') { ev.preventDefault(); desfazer(); return; }
   if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
-  const k = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+  // Shift + letra tem tecla própria só onde existe (C, H = mão de trás); senão vale a minúscula
+  const k = ev.key.length !== 1 ? ev.key
+    : (ev.shiftKey && TECLAS[ev.key.toUpperCase()]) ? ev.key.toUpperCase() : ev.key.toLowerCase();
   const acao = TECLAS[k];
   if (!acao) return;
   ev.preventDefault();
@@ -469,6 +485,10 @@ function renderLateral() {
     ${linha('pausa', 'Pausa · clinch', r.t_pausa, r.n_pausa, 'trechos')}
     <div class="sub-resumo">
       <span>Golpes <b>${r.n_golpes}</b></span><span>Fintas <b>${r.n_fintas}</b></span>
+      <span title="jab">Jab <b>${r.n_jab}</b></span><span title="direto">Direto <b>${r.n_direto}</b></span>
+      <span title="cruzado da frente / de trás">Cruzado <b>${r.n_cruzado_frente}/${r.n_cruzado_tras}</b></span>
+      <span title="gancho da frente / de trás">Gancho <b>${r.n_gancho_frente}/${r.n_gancho_tras}</b></span>
+      ${r.n_golpe_sem_tipo ? `<span>Golpe sem tipo <b>${r.n_golpe_sem_tipo}</b></span>` : ''}
       <span>Sequências <b>${r.n_sequencias_ataque}</b></span>
       <span>Bloqueios <b>${r.n_bloqueios}</b></span><span>Esquivas <b>${r.n_esquivas}</b></span>
       <span>Guarda <b>${r.n_guarda}</b></span>
@@ -582,7 +602,7 @@ function desenhar(cv, ini, fim, detalhe) {
     const px = x(m.t);
     ctx.fillStyle = '#fff';
     ctx.fillRect(Math.round(px), y0 - (detalhe ? 4 : 0), detalhe ? 2 : 1, hh + (detalhe ? 4 : 0));
-    if (detalhe) { ctx.fillStyle = COR[ACOES[m.acao]]; ctx.fillText(LETRA_ACAO[m.acao], px, 4); }
+    if (detalhe) { ctx.fillStyle = COR[ACOES[m.acao]]; ctx.fillText(letraAcao(m), px, 4); }
   }
   // cabeça de leitura
   const px = x(t);
