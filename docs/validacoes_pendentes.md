@@ -36,7 +36,7 @@ Atualizado em: 2026-10-30
 **4. Base MHdS**
 - [ ] B1 — Linhas duplicadas (copiar/colar)
 - [ ] B2 — Agrupamento de lutas (`luta_id`)
-- [ ] B3 — Aba de 2020 (só tempos)
+- [x] B3 — Aba de 2020 (só tempos)
 
 **5. Pipeline automático**
 - [ ] P1 — Validação humana do contador de golpes (Edwards × Lenzi)
@@ -50,6 +50,9 @@ Atualizado em: 2026-10-30
 - [ ] P9 — Estados automáticos (E5) × modo juiz, quadro a quadro
 - [ ] P10 — Pausa em close e advertências do árbitro (E5)
 - [ ] P11 — Limiares da E5 em outras lutas da base
+- [ ] P12 — Início dos rounds automático (cronômetro do placar)
+- [ ] P13 — Revisão dos golpes: tipo (jab, direto, cruzado, gancho) e precisão do detector
+- [ ] P14 — Mão do golpe e guarda (troca esquerda/direita do YOLO)
 
 **6. Ambiente**
 - [ ] A1 — Python ≥ 3.10 e novo ambiente virtual
@@ -203,9 +206,11 @@ Testado até aqui: só **Google Chrome**, em telas de 1440 e 500 px, com o víde
 - **Resultado:** lutas com ≠ 6 linhas: ______ · ☐ corrigido · data: ______
 
 ### B3 — Aba de 2020 (só tempos)
-- **Situação:** a aba "Pré olímpico 2020" (248 rounds, sem contagens, categorias antigas) não é
-  convertida.
-- **Decisão:** ☐ converter ☐ não usar · quem: ______
+- **Situação:** convertida em 2026-11-05 para um CSV à parte (`data/referencia/rounds_2020.csv`,
+  49 lutas, só tempos, categorias antigas, `luta_id` a partir de 1001). A base 2023–2024 não muda.
+  Usada só na E2, para comparar ciclos.
+- **Falta decidir:** se essa eliminatória europeia representa bem o ciclo de Tóquio na proposta
+  (Tóquio 2020 propriamente dito não está na base) · quem: ______
 
 ---
 
@@ -279,8 +284,9 @@ Testado até aqui: só **Google Chrome**, em telas de 1440 e 500 px, com o víde
 ### P9 — Estados automáticos (E5) × modo juiz, quadro a quadro
 - **Situação:** a E5 só foi comparada com os **totais** da base por round (12 linhas, 2 lutas do
   Pan 2023). As médias batem, mas não se sabe se os trechos caem nos mesmos momentos.
-- **Como:** gerar a pré-anotação com `src/estados.py --gravar` (ver README), abrir no modo juiz e
-  corrigir um round inteiro. Comparar a pré-anotação com a corrigida: % do tempo no mesmo estado e
+- **Pronto para revisar:** as 12 pré-anotações (luta_id 92 e 94, 3 rounds × 2 cantos) já estão em
+  `data/anotacoes/`, geradas do pipeline completo; métricas contra a base em `docs/avaliacao_e5.md`.
+- **Como:** abrir uma delas no modo juiz e corrigir um round inteiro. Comparar a pré-anotação com a corrigida: % do tempo no mesmo estado e
   matriz de confusão entre os 4 estados. A correção também mede quanto tempo a pré-anotação
   economiza em relação a anotar do zero (V3).
 - **Resultado:** concordância ______% · maior confusão: ______ → ______ · tempo de correção ______ min/round
@@ -302,6 +308,38 @@ Testado até aqui: só **Google Chrome**, em telas de 1440 e 500 px, com o víde
   `docs/decisoes.md`.
 - **Resultado:** erro médio t_pausa ______ s · t_defesa ______ s · ☐ segue igual ☐ recalibrar
 
+### P12 — Início dos rounds automático (cronômetro do placar)
+- **Situação:** hoje o início de cada round é informado à mão (`--rounds` do `src/estados.py`). Em
+  2026-11-05 testei achar o cronômetro sem OCR: o bloco da tela que muda 1×/s. Funcionou em
+  La Cruz × Keno (o dígito dos segundos se destaca: 176 contra 37 do 2º bloco), mas não em
+  Edwards × Arzola, onde o vídeo tem bordas pretas e os dígitos têm 4–6 px em 360p. Mesmo
+  achando o relógio, o placar só entra ~6 s depois do gongo, então o início exato exigiria ler os
+  dígitos.
+- **Como:** com os vídeos das lutas da base (provavelmente em resolução maior que os do YouTube),
+  testar OCR do relógio (ex.: Tesseract) 1×/s e calcular início = momento em que mostra 2:59 − 1 s.
+- **Resultado:** ☐ funciona nas transmissões da base · erro ______ s · ☐ manter manual
+
+### P13 — Revisão dos golpes: tipo e precisão do detector
+- **Situação:** o tipo de golpe sai por regras sobre a pose (`src/golpes.py`), sem gabarito: a
+  base MHdS não registra o tipo. Os limiares (ângulo do cotovelo, subida do punho…) são valores de
+  partida. Distribuição automática atual em `docs/avaliacao_golpes.md`, seção 1.
+- **Como:** interface web → **Golpes** (`/golpes`). Escolher a luta e um round, e revisar todos os
+  golpes desse round para os dois atletas (tecla por golpe; `Enter` aceita a sugestão). ~140 golpes,
+  ~7 min por round. Começar por 1 round de cada luta. Depois: `python src/avaliar_golpes.py`.
+- **Usa para:** acerto do tipo e da mão, precisão do contador de golpes (quantos eram finta ou não
+  eram golpe, resolve parte do P1) e calibrar os limiares de `src/golpes.py` numa luta e testar na
+  outra.
+- **Resultado:** rounds revisados ______ · acerto do tipo ______% · precisão do detector ______%
+
+### P14 — Mão do golpe e guarda (troca esquerda/direita do YOLO)
+- **Situação:** a mão (frente/trás) vem do braço do golpe comparado com a guarda do atleta (lado
+  mais próximo do oponente). Se o YOLO troca esquerda e direita (atleta de costas), troca os dois
+  juntos e a mão continua certa; se troca só num quadro, erra. Canhotos e troca de guarda no round
+  dependem da guarda estar certa.
+- **Como:** na revisão (P13), anotar à parte os golpes em que o quadro destaca o braço errado; e
+  conferir a guarda de pelo menos 1 atleta canhoto.
+- **Resultado:** acerto da mão ______% · braço trocado em ______% dos golpes
+
 ---
 
 ## 6. Ambiente
@@ -309,9 +347,16 @@ Testado até aqui: só **Google Chrome**, em telas de 1440 e 500 px, com o víde
 ### A1 — Python ≥ 3.10 e novo ambiente virtual
 - **Situação:** o projeto roda em Python 3.9.6 (o do macOS). A integração com o Claude (E7) exige
   ≥ 3.10.
-- **Como:** instalar o Python 3.12, recriar o `.venv`, `pip install -r requirements.txt`, abrir a
-  interface web e rodar `src/features.py` num clipe.
-- **Resultado:** ☐ ok · versão: ______ · data: ______
+- **Testado em 2026-11-05 num ambiente à parte** (Python 3.11.16 já instalado em
+  `~/.local/bin/python3.11`; numpy 2.4, OpenCV 5.0, ultralytics 8.4, anthropic 2.5): conversão da
+  base idêntica byte a byte, estudo da base idêntico, pipeline + E5 num clipe de 12 s e as
+  páginas `/` e `/juiz` ok. Falta só trocar o `.venv` do projeto:
+  ```bash
+  mv .venv .venv39 && ~/.local/bin/python3.11 -m venv .venv
+  .venv/bin/pip install -r requirements.txt anthropic
+  ```
+  (apagar `.venv39` depois de usar a interface web por uns dias sem problema).
+- **Resultado:** ☐ trocado · data: ______
 
 ---
 
