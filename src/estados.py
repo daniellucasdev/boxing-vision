@@ -14,7 +14,7 @@ Regras por quadro, com a prioridade da v1.0: Pausa > Ataque > Defesa > Deslocame
     Lacunas curtas são preenchidas e pausas curtas descartadas.
   - Ataque: trecho de ATAQUE_ANTES + ATAQUE_DEPOIS em volta de cada golpe detectado;
     golpes próximos formam uma sequência. Cada golpe vira a ação "golpe" (o detector não
-    separa golpe de finta).
+    separa golpe de finta), com tipo e mão se houver golpes.json na pasta (src/golpes.py).
   - Defesa: golpe do OPONENTE dirigido ao atleta (punho a menos de DEFESA_ALCANCE larguras
     de ombro do nariz: só descarta golpe no vazio, de longe), fora do próprio ataque → trecho de defesa
     e ação "defesa" sem subtipo (bloqueio/esquiva/guarda não são distinguidos).
@@ -168,8 +168,9 @@ CORES = ("Vermelho", "Azul")
 
 
 def marcas_round(estados: np.ndarray, direcao: list[str | None], golpes: list[int], defesas: list[int],
-                 fps: float, ini: int, fim: int) -> list[dict]:
-    """Marcas do modo juiz para 1 atleta entre os quadros [ini, fim) (índices 0-based)."""
+                 fps: float, ini: int, fim: int, tipos: list[dict] | None = None) -> list[dict]:
+    """Marcas do modo juiz para 1 atleta entre os quadros [ini, fim) (índices 0-based).
+    tipos: um {golpe, mao} (ou {} = sem tipo) por golpe, na mesma ordem de golpes."""
     marcas = []
     ant = None
     for f in range(ini, fim):
@@ -179,9 +180,9 @@ def marcas_round(estados: np.ndarray, direcao: list[str | None], golpes: list[in
             marcas.append({"t": round(f / fps, 3), "tipo": "estado", "estado": est, "dir": d})
             ant = (est, d)
     marcas.append({"t": round(fim / fps, 3), "tipo": "estado", "estado": "fim", "dir": None})
-    for f in golpes:
+    for f, tipo in zip(golpes, tipos or [{}] * len(golpes)):
         if ini <= f < fim and estados[f] == 1:
-            marcas.append({"t": round(f / fps, 3), "tipo": "acao", "acao": "golpe"})
+            marcas.append({"t": round(f / fps, 3), "tipo": "acao", "acao": "golpe", **tipo})
     for f in defesas:
         if ini <= f < fim and estados[f] == 2:
             marcas.append({"t": round(f / fps, 3), "tipo": "acao", "acao": "defesa"})
@@ -210,6 +211,14 @@ def anotar(out_dir, inicios_s: list[float], video: str = "", base_luta: list[dic
 
     pm, _ = pausa(z["pes"], z["altura"], z["arbitro"], fps, z["caixa"] if "caixa" in z else None)
     golpes = [[int(e["frame"]) - 1 for e in eventos if e["boxer"] == c] for c in CORES]
+    # tipo de golpe (src/golpes.py), se já classificado: {golpe, mao} por golpe, mesma ordem
+    tipo_de: dict[tuple, dict] = {}
+    if (out_dir / "golpes.json").exists():
+        for g in json.loads((out_dir / "golpes.json").read_text())["golpes"]:
+            if g.get("golpe"):
+                tipo_de[(g["boxer"], int(g["frame"]), g["braco"])] = {"golpe": g["golpe"], "mao": g["mao"]}
+    tipos = [[tipo_de.get((c, int(e["frame"]), e["braco"]), {}) for e in eventos if e["boxer"] == c]
+             for c in CORES]
     defesas = defesas_por_golpes(eventos)
     est = estados_por_quadro(n, fps, pm, golpes, defesas)
     docs = []
@@ -222,7 +231,8 @@ def anotar(out_dir, inicios_s: list[float], video: str = "", base_luta: list[dic
                                                       "pais_oponente")}
             meta.update(cor=cor, round=str(ri), anotador="automático (E5)", base_chave=(b or {}).get("chave", ""))
             docs.append({"meta": meta, "video": video,
-                         "marcas": marcas_round(est[k], direcao[k], golpes[k], defesas[k], fps, ini, fim)})
+                         "marcas": marcas_round(est[k], direcao[k], golpes[k], defesas[k], fps, ini, fim,
+                                                tipos[k])})
     return docs
 
 
