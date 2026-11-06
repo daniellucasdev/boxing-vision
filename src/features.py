@@ -264,8 +264,9 @@ def run_pipeline(
     camera = CompensadorCamera()
     trajetos = [Trajeto(fps) for _ in CORES]
     desl: list[dict] = []
-    # E5: por quadro, pés (reais ou estimados) e altura do corpo de cada canto + pés do árbitro
-    formas = {"pes": (2, 2), "altura": (2,), "arbitro": (2,), "caixa": (2, 4)}
+    # E5: por quadro, pés (reais ou estimados) e altura do corpo de cada canto + pés do árbitro;
+    # tipo de golpe: os 17 keypoints (x, y, conf) de cada canto, para a trajetória em volta do golpe
+    formas = {"pes": (2, 2), "altura": (2,), "arbitro": (2,), "caixa": (2, 4), "kps": (2, 17, 3)}
     serie = {k: [] for k in formas}
     rows: list[dict] = []
     frame_idx = 0
@@ -346,6 +347,7 @@ def run_pipeline(
                 serie["pes"][-1][si], serie["altura"][-1][si] = pe[0], escala
             if i is not None:
                 serie["caixa"][-1][si] = caixas[i]
+                serie["kps"][-1][si] = kps_all[i]
         if None not in matched:  # árbitro: pessoa sem cor, de corpo inteiro, mais perto dos dois
             meio = (dets[matched[0]]["centro"] + dets[matched[1]]["centro"]) / 2
             maior = max(dets[i]["altura"] for i in matched)
