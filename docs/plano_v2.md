@@ -34,6 +34,7 @@ pausa) e **8,9** ocorrências (5,1 + 3,8).
 | Coluna | Significado |
 |---|---|
 | `n_golpes`, `n_fintas` | detalhamento do ataque (`n_ataque` = soma) |
+| `n_jab`, `n_direto`, `n_cruzado_frente`, `n_cruzado_tras`, `n_gancho_frente`, `n_gancho_tras` (+ totais `n_cruzado`, `n_gancho`) e `n_golpe_sem_tipo` | **tipo de golpe**: jab = reto da mão da frente; direto = reto da mão de trás; cruzado = arco horizontal (hook); gancho = de baixo para cima (uppercut). Mão da frente/de trás pela guarda do atleta. `n_golpes` = soma dos tipos + sem tipo |
 | `n_bloqueios`, `n_esquivas`, `n_guarda` | detalhamento da defesa (`n_defesa` = soma) |
 | `t_desl_esq`, `t_desl_dir` | tempo em deslocamento lateral para a esquerda/direita **do atleta** |
 | `t_desl_frente`, `t_desl_tras` | tempo avançando / recuando em relação ao oponente |
@@ -95,7 +96,7 @@ ele ocupa ~106 s dos 180 s.
 | **B** | **Vídeos completos das lutas da base** | Rodar o software nas mesmas lutas anotadas e comparar linha a linha | Rounds inteiros, sem cortes de highlight | **Falta reunir.** O `data/olympic.mp4` (Edwards × Lenzi) é um highlight de 170 s e não serve para validação por round |
 | **C** | **Anotação temporal própria** (nova) | Ground truth por frame: 4 estados, **direção do deslocamento**, golpe × **finta**, bloqueio × esquiva × guarda. Treino do modelo temporal | A rotina da v1.0 reinstrumentada: a cada tecla, grava-se um timestamp (ver Etapa 1) | A criar — **contribuição da dissertação** |
 | **D** | **BoxMAC** (arXiv 2412.18204) | Defesa: seus rótulos batem com as subcategorias da v2.0 (slip/duck → esquiva, block → bloqueio, guard → guarda) e clinch (→ pausa) | 13 rótulos por frame: 6 golpes + stance, slip, block, guard, duck, clinching, no action. >60 mil frames, 15 boxeadores profissionais, 4 câmeras PTZ | Disponibilidade pública **não confirmada** → contatar os autores |
-| **E** | **BoxingVI** (arXiv 2511.16524) | Pré-treino da detecção de ataque e, no futuro, do tipo de golpe | 6.915 clipes, 6 golpes (jab, cross, lead/rear hook, lead/rear uppercut), pose 2D já extraída; sparring do YouTube | Público |
+| **E** | **BoxingVI** (arXiv 2511.16524) | Pré-treino da detecção de ataque e do **tipo de golpe** (os 6 rótulos casam 1:1 com jab, direto, cruzado e gancho da frente/de trás) | 6.915 clipes, 6 golpes (jab, cross, lead/rear hook, lead/rear uppercut), pose 2D já extraída; sparring do YouTube | Público |
 | **F** | **Olympic Boxing Punch Classification** (Stefański et al.) | Domínio olímpico real; desfecho do golpe para métricas futuras | 2.278 clipes em 8 classes: cabeça / corpo / bloqueado / errou × mão esquerda/direita; câmera estática | Uso **acadêmico, não comercial** |
 | **G** | **SportsMOT** (opcional) | Benchmark de tracking esportivo para avaliar o rastreador | Atletas rápidos e de aparência parecida (basquete, vôlei, futebol) | Público; só se a identidade por cor (Etapa 3) não bastar |
 
@@ -156,6 +157,7 @@ categoria**, opcionalmente por round).
 | **Mobilidade** | distância percorrida; % lateral × frontal; preferência esquerda/direita (e mão da frente/trás) | software (novo) |
 | **Pressão** | avanço × recuo; distância média ao oponente | software (novo) |
 | **Engano** | fintas / ações de ataque (quem constrói o ataque com fintas × quem só solta golpes) | software (novo) |
+| **Repertório** | distribuição jab / direto / cruzado / gancho; fração de jab; uso da mão de trás; sequências mais comuns (jab-direto, direto-cruzado…) | software (novo; a base não tem tipo de golpe, então o percentil é só entre lutas processadas) |
 | **Defesa** | ações defensivas por golpe recebido; preferência bloqueio × esquiva × guarda | base A + software (detalhamento novo) |
 | **Fadiga** | queda R1 → R3 (na base, ~7% menos golpes no 3º round) | base A + software |
 
@@ -213,13 +215,13 @@ O caminho crítico é **E0 → E1 → E3 → E5**. A E2 corre em paralelo desde 
 |---|---|---|
 | **E0 — Preparação** | ✅ *Script reproduzível xlsx → CSV (`src/base_mhds.py`, 786 rounds).* Script reproduzível xlsx → CSV com a limpeza já descrita (duplicatas, grafias, rounds fora de 180 s) e a coluna de pausa v2.0; Python 3.12 + novo venv; reunir os vídeos completos de 10–15 lutas da base; fechar as questões abertas do §2 | CSVs gerados por script; vídeos em `data/lutas/` |
 | **E1 — Modo juiz (anotação)** | ✅ *Ferramenta pronta (`/juiz`); falta o critério de pronto.* Na interface web: vídeo a 0,125×, teclas para os 4 estados, golpe, finta, bloqueio, esquiva, guarda e direção (← →); exporta intervalos com timestamp **e** a linha agregada no layout da planilha | Anotar 1 round e reproduzir a linha da base dentro da variação humana |
-| **E2 — Estudo da base** (paralelo) | Pace por sexo/categoria/round; efeito de juntar clinch à pausa; primeiros agrupamentos de estilo; vencedor × perdedor | Capítulo descritivo com figuras |
+| **E2 — Estudo da base** (paralelo) | ✅ *Pronta: [estudo_base.md](estudo_base.md), gerado por `src/estudo_base.py`. Inclui o pré-olímpico 2020 (só tempos) para comparar ciclos.* Pace por sexo/categoria/round; efeito de juntar clinch à pausa; primeiros agrupamentos de estilo; vencedor × perdedor | Capítulo descritivo com figuras |
 | **E3 — Identidade e tempo** | ✅ *Identidade por cor (`src/identidade.py`, `features.py` v4) e detector de cortes prontos; rounds marcados no modo juiz; repetições automáticas ficam para depois (só aparecem nos intervalos).* Cor azul/vermelho, marcação de rounds, detecção de cortes/replays | Cobertura por atleta e trocas de identidade medidas em vídeos da base B |
 | **E4 — Deslocamento** | ✅ *Pronta (`src/deslocamento.py`); conferida a olho, falta comparar com o modo juiz (P6–P8). Mede só com os pés no quadro (19–28% do round no Pan 2023) → proporções.* Compensação de câmera + decomposição frente/trás/lateral | Acurácia da direção × anotação C |
 | **E5 — Estados por regras** | ✅ *Pronta (`src/estados.py`): gera pré-anotação no formato do modo juiz. Nas 2 lutas do Pan 2023 da base, médias batem e o erro por linha fica abaixo de chutar a média em desl., defesa e pausa (pausa ±15 s, defesa ±6 s); n_ataque pior (contador, P1).* 4 estados calibrados na base A → planilha v2.0 automática | Erro por estado × base A em lutas de teste |
-| **E6 — Modelo temporal** | TCN/LSTM sobre pose para ataque/defesa e suas subcategorias: golpe × finta (C + E), bloqueio × esquiva × guarda (C + D) | Supera as regras da E5 na anotação C |
+| **E6 — Modelo temporal** | 🔶 *Tipo de golpe por regras pronto (`src/golpes.py`) + revisão rápida por golpe (`/golpes`) para o gabarito.* TCN/LSTM sobre pose para ataque/defesa e suas subcategorias: **tipo de golpe** — jab, direto, cruzado, gancho × mão (golpes revisados + E), golpe × finta (C + E), bloqueio × esquiva × guarda (C + D) | Supera as regras na anotação C e nos golpes revisados |
 | **E7 — Perfil + relatório** | Métricas da §5, percentis, relatório pelo Claude, tela de perfil na web | Perfil gerado para todos os atletas da base B |
-| **E8 — Futuro** | Tipo de golpe (E), golpe que acerta/erra (F), on-device (ESP32-S3) | — |
+| **E8 — Futuro** | Golpe que acerta/erra e alvo cabeça/corpo (F), on-device (ESP32-S3). *O tipo de golpe saiu daqui e entrou na E6 (2026-11-05).* | — |
 
 **O que já existe e é reaproveitado:** pose + tracking (Fase 0), contador de golpes por regras
 (Fase 1 → vira a base de `n_ataque`), gating contra juiz/plateia (que a identidade por cor
