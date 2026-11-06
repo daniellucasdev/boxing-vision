@@ -232,8 +232,73 @@
   | n_defesa | 5,8 | 7,9 | 0,38 |
 
   As médias batem (ataque 32 × 32 s, pausa 29 × 27 s, defesa 29 × 30 ações), mas a diferença
-  round a round ainda é grande. Referência do ruído humano: na base, a pausa do mesmo round difere
-  4,8 s em média entre os dois atletas, e deveria ser igual.
+  round a round ainda é grande. Referência do ruído humano: na base, a pausa v2.0 do mesmo round
+  difere 5,0 s em média entre os dois cantos, e deveria ser igual (`docs/estudo_base.md`, seção 6).
+  Relatório completo, refeito do pipeline das lutas inteiras, com viés, limites de Bland–Altman e
+  ICC: `docs/avaliacao_e5.md` (gerado por `src/avaliar_estados.py`; os números acima se repetem).
 - **Onde erra:** (1) pausa no R3 de La Cruz × Keno (base 65–73 s, regras 31 s): advertências do
   árbitro e clinches em close com um atleta só no quadro; (2) n_ataque 18% acima: o contador de
   golpes conta demais e não separa finta (P1); (3) defesa sem subtipo. Estes três são o alvo da E6.
+
+## 2026-11-05 — E2 (estudo da base)
+
+- **Relatório gerado por script** (`src/estudo_base.py` → `docs/estudo_base.md` + figuras), para
+  refazer sem trabalho manual quando a base crescer.
+- **Aba de 2020 convertida à parte** (`rounds_2020.csv`): só tempos, categorias antigas; serve
+  para comparar ciclos (objetivo 3.2.3 da proposta), sem mexer na base 2023–2024. Tóquio 2020
+  propriamente dito não está na planilha; o ciclo é representado pela eliminatória europeia.
+- **Modelos mistos com intercepto por luta** (os 6 rounds de uma luta não são independentes) e
+  Holm dentro de cada tabela. Comparação de ciclos repetida só com quartas em diante, porque 2020
+  não tem as fases iniciais.
+- **Piso do erro humano medido na própria base:** clinch e pausa são dos dois atletas, então as
+  linhas Vermelho e Azul do mesmo round deveriam coincidir. Diferença média: 5,0 s na pausa v2.0,
+  ICC(A,1) 0,91. É a referência para o erro da E5 (14,6 s na pausa) e o tipo de métrica
+  (ICC, Bland–Altman) que a proposta deve usar no lugar do mAP.
+- **Achados principais:** o R1 tem ~10 s a mais de deslocamento e ~13 s a menos de pausa que R2 e
+  R3; mulheres defendem menos (11 × 14 s; 22 × 31 ações); de 2020 para 2023–24 o ataque subiu
+  ~6 s e a defesa ~5 s por round (homens); volume e tempo **não** separam vencedor de perdedor.
+- **Estilos:** silhueta máxima 0,25 (k = 2): os atletas formam um contínuo, não tipos. O perfil
+  do lutador (E7) vai usar o percentil do atleta em cada escala, não um rótulo de grupo.
+
+## 2026-11-05 — Tipo de golpe (jab, direto, cruzado, gancho) entra nas métricas
+
+- **Escopo:** o tipo de golpe saiu da E8 (futuro) e entrou na E6. Termos: jab = reto da mão da
+  frente; direto = reto da mão de trás; cruzado = arco horizontal (hook); gancho = de baixo para
+  cima (uppercut). Casam 1:1 com BoxingVI e BoxMAC (jab, cross, lead/rear hook, lead/rear
+  uppercut), o que permite pré-treinar um modelo depois.
+- **Contagem separada por mão** (da frente / de trás, pela guarda do atleta) para cruzado e
+  gancho: `n_cruzado_frente`, `n_cruzado_tras`, `n_gancho_frente`, `n_gancho_tras` (+ totais),
+  além de `n_jab`, `n_direto` e `n_golpe_sem_tipo`. `n_golpes` = soma; `n_ataque` e a comparação
+  com a base não mudam. No JSON do modo juiz, a ação "golpe" ganha `golpe` e `mao` opcionais:
+  anotações antigas continuam válidas (golpe sem tipo).
+- **Regras antes de modelo**, como na E5: na transmissão (câmera de lado), o arco do cruzado
+  acontece em profundidade e não aparece; o que aparece é o cotovelo dobrado e alto. Por isso:
+  reto = cotovelo estendido na extensão máxima + punho avançando; gancho = punho subindo mais do
+  que avança, partindo abaixo do ombro; cruzado = cotovelo dobrado na altura do ombro. Medidas em
+  troncos (ombros → quadris), que não encolhem quando o atleta gira, ao contrário da largura dos
+  ombros. Na dúvida, "sem tipo".
+- **Mão pela guarda medida, não pelo lado da tela:** lado do corpo mais próximo do oponente ao
+  longo do eixo do confronto (tornozelos > quadris > ombros), mediana em ±2 s (há troca de
+  guarda). Se o YOLO troca esquerda/direita com o atleta de costas, troca guarda e braço juntos e a
+  mão continua certa.
+- **Pipeline guarda os 17 keypoints por quadro** (`serie.npz["kps"]`, ~2 MB por luta): o tipo é
+  calculado depois, sem rodar o YOLO de novo a cada ajuste de limiar.
+- **Gabarito por revisão de golpe, não por anotação completa:** a base MHdS não tem tipo de golpe.
+  Rever cada golpe detectado em laço de ~1 s (página `/golpes`) custa ~7 min por round, contra
+  ~24 min por atleta × round da anotação completa, e mede junto a precisão do contador (finta,
+  "não é golpe"). Golpes perdidos pelo detector não aparecem nessa revisão; a cobertura continua
+  vindo da anotação completa (P9). Validação planejada: calibrar numa luta e testar na outra.
+- **Primeira rodada nas 2 lutas (2026-11-06), sem gabarito:** 1.016 golpes detectados nos rounds,
+  ~22% com tipo. Conferência visual informal de 5 golpes por tipo em cada luta (não substitui a
+  revisão P13): jab e direto em geral certos (~3–4 de 5); cruzado ~2 de 5; gancho quase sempre
+  errado (pega o atleta ajeitando a guarda, com o punho subindo perto do rosto). Boa parte dos
+  "golpes" do detector não é golpe: cortes de câmera dentro da janela, close da TV, clinch, braço
+  parado. Ajustes motivados pela conferência:
+  (1) o pico do golpe é o maior **alcance na direção do oponente** (punho − ombro projetado no
+  eixo), não a maior distância ombro→punho: o braço caído ao lado do corpo também fica longe do
+  ombro e era tomado como "extensão máxima";
+  (2) janela com corte de câmera (lista do pipeline) ou com o ombro andando mais de 1 tronco por
+  quadro (corte não detectado, troca de pessoa; mediana normal = 0,17) → sem tipo;
+  (3) gancho mais restrito: subida 2× maior que o avanço, cotovelo dobrado e punho perto do corpo
+  no topo; reto exige o punho ≥ 0,6 tronco à frente do ombro.
+  O gancho continua sendo o tipo menos confiável; o número de acerto só sai com a revisão (P13).
