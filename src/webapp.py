@@ -6,6 +6,9 @@ Páginas:
           com barra de progresso).
   /juiz   Modo juiz (E1) — anotação temporal de 1 atleta × 1 round, a 0,125× como na v1.0;
           gera a linha da planilha v2.0 e compara com a base MHdS (data/referencia/).
+  /golpes Revisão rápida de golpes — cada golpe detectado em laço de ~1 s; o revisor dá o tipo
+          (jab, direto, cruzado, gancho + mão), finta ou "não é golpe". Gera o gabarito do
+          tipo de golpe e da precisão do contador (data/golpes_revisados/).
 
 Rodar:
   source .venv/bin/activate
@@ -29,6 +32,8 @@ from werkzeug.exceptions import HTTPException
 from werkzeug.utils import secure_filename
 
 import anotacao
+import golpes as golpes_mod
+import lutas as lutas_mod
 from base_mhds import carregar_base, sem_acento
 
 REPO = Path(__file__).resolve().parent.parent
@@ -195,6 +200,69 @@ def index():
 @app.get("/juiz")
 def juiz():
     return render_template("juiz.html", pagina="juiz", tem_base=bool(carregar_base()))
+
+
+@app.get("/golpes")
+def pagina_golpes():
+    return render_template("golpes.html", pagina="golpes")
+
+
+def _luta_processada(nome: str) -> dict:
+    luta = lutas_mod.por_nome(nome)
+    if luta is None or not (REPO / lutas_mod.pasta(luta) / "golpes.json").exists():
+        abort(404, "luta sem golpes classificados (rode src/golpes.py)")
+    return luta
+
+
+@app.get("/api/golpes")
+def api_golpes_lutas():
+    out = []
+    for luta in lutas_mod.LUTAS:
+        arq = REPO / lutas_mod.pasta(luta) / "golpes.json"
+        if arq.exists():
+            out.append({"nome": luta["nome"], "luta_id": luta["luta_id"],
+                        "revisados": len(golpes_mod.ler_revisao(luta["nome"])["rotulos"])})
+    return jsonify(out)
+
+
+@app.get("/api/golpes/<nome>")
+def api_golpes(nome: str):
+    import numpy as np
+    luta = _luta_processada(nome)
+    pasta = REPO / lutas_mod.pasta(luta)
+    z = np.load(pasta / "serie.npz")
+    fps, caixas = float(z["fps"]), z["caixa"]
+    atletas = {r["cor"]: r["atleta"] for r in carregar_base() if str(r["luta_id"]) == luta["luta_id"]}
+    rev = golpes_mod.ler_revisao(nome)["rotulos"]
+    lista = []
+    for g in json.loads((pasta / "golpes.json").read_text())["golpes"]:
+        t = (int(g["frame"]) - 1) / fps
+        rnd = lutas_mod.round_de(luta, t)
+        if rnd is None:  # apresentação, intervalo, replay: fora do gabarito
+            continue
+        k = golpes_mod.CORES.index(g["boxer"])
+        cx = caixas[int(g["frame"]) - 1, k]
+        gid = golpes_mod.golpe_id(g)
+        lista.append({"id": gid, "t": round(t, 3), "round": rnd, "cor": g["boxer"],
+                      "atleta": atletas.get(g["boxer"], ""), "braco": g["braco"], "guarda": g["guarda"],
+                      "auto": golpes_mod.rotulo_auto(g),
+                      "caixa": None if not np.isfinite(cx).all() else [round(float(v), 1) for v in cx],
+                      "revisao": (rev.get(gid) or {}).get("rotulo")})
+    return jsonify({"nome": nome, "video": lutas_mod.video(luta), "fps": fps,
+                    "rotulos": list(golpes_mod.ROTULOS), "golpes": lista})
+
+
+@app.put("/api/golpes/<nome>/<gid>")
+def api_rotular_golpe(nome: str, gid: str):
+    _luta_processada(nome)
+    if not re.fullmatch(r"[VA]\d+[LR]", gid):
+        abort(400, "id de golpe inválido")
+    rotulo = (request.get_json(force=True, silent=True) or {}).get("rotulo")
+    try:
+        rev = golpes_mod.gravar_rotulo(nome, gid, rotulo, datetime.now().isoformat(timespec="seconds"))
+    except ValueError as exc:
+        return jsonify(error=str(exc)), 400
+    return jsonify({"id": gid, "rotulo": rotulo, "revisados": len(rev["rotulos"])})
 
 
 @app.get("/api/videos")
