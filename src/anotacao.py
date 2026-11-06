@@ -6,12 +6,16 @@ O anotador assiste ao vídeo devagar (padrão 0,125× = 8× mais lento, como na 
     corte — não conta no tempo do round) e fim do round;
   - AÇÕES pontuais: golpe e finta (ataque); bloqueio, esquiva e guarda (defesa). A
     pré-anotação automática (E5) usa "defesa" sem subtipo: ela não distingue os três.
+    O golpe pode levar o TIPO (jab, direto, cruzado, gancho) e a MÃO (frente/trás, do ponto de
+    vista da guarda do atleta): jab é sempre da mão da frente e direto da de trás; cruzado
+    (hook) e gancho (uppercut) exigem a mão. Golpe sem tipo continua válido.
 
 resumir() transforma as marcas na linha da planilha v2.0 (mesmos campos da base MHdS, com o
 clinch dentro da pausa) + o detalhamento novo (golpe × finta, bloqueio × esquiva × guarda,
 direção do deslocamento). Contagens seguem as definições confirmadas da v1.0:
   n_deslocamento / n_pausa = nº de trechos contínuos do estado
   n_ataque = golpes + fintas;  n_defesa = bloqueios + esquivas + guarda
+  n_golpes = jab + direto + cruzado (frente + trás) + gancho (frente + trás) + golpe sem tipo
 """
 
 from __future__ import annotations
@@ -25,6 +29,11 @@ FORA, FIM = "fora", "fim"
 DIRECOES = ("esq", "dir", "frente", "tras")
 ACOES = {"golpe": "ataque", "finta": "ataque",
          "bloqueio": "defesa", "esquiva": "defesa", "guarda": "defesa", "defesa": "defesa"}
+GOLPES = ("jab", "direto", "cruzado", "gancho")
+MAOS = ("frente", "tras")
+MAO_FIXA = {"jab": "frente", "direto": "tras"}   # cruzado e gancho saem das duas mãos
+# chaves da contagem por tipo (a coluna é n_<chave>); None = golpe sem tipo
+CHAVES_GOLPE = ("jab", "direto", "cruzado_frente", "cruzado_tras", "gancho_frente", "gancho_tras")
 CAMPOS_META = ("atleta", "pais", "cor", "sexo", "categoria", "competicao", "fase",
                "resultado", "oponente", "pais_oponente", "round", "anotador", "base_chave")
 MAX_MARCAS = 20_000
@@ -38,6 +47,7 @@ COLUNAS_LINHA = [
     "n_deslocamento", "n_ataque", "n_defesa", "n_pausa",
     "n_golpes", "n_fintas", "n_bloqueios", "n_esquivas", "n_guarda", "n_defesa_sem_tipo",
     "n_sequencias_ataque",
+    *(f"n_{k}" for k in CHAVES_GOLPE), "n_cruzado", "n_gancho", "n_golpe_sem_tipo",
     "t_desl_esq", "t_desl_dir", "t_desl_frente", "t_desl_tras", "t_desl_sem_dir",
     "n_desl_esq", "n_desl_dir", "n_desl_frente", "n_desl_tras",
     "t_fora", "inicio_round_s", "fim_round_s", "anotador", "video",
@@ -80,10 +90,39 @@ def validar(doc: dict) -> dict:
         elif m.get("tipo") == "acao":
             if m.get("acao") not in ACOES:
                 raise ValueError(f"ação desconhecida: {m.get('acao')}")
-            marcas.append({"t": t, "tipo": "acao", "acao": m["acao"]})
+            marcas.append({"t": t, "tipo": "acao", "acao": m["acao"], **_tipo_golpe(m)})
         else:
             raise ValueError("tipo de marca deve ser 'estado' ou 'acao'")
     return {"meta": meta, "video": str(doc.get("video", "")), "marcas": marcas}
+
+
+def _tipo_golpe(m: dict) -> dict:
+    """Valida golpe/mão de uma marca de ação; devolve {} para golpe sem tipo ou outra ação."""
+    golpe, mao = m.get("golpe") or None, m.get("mao") or None
+    if golpe is None:
+        if mao is not None:
+            raise ValueError("mão informada sem o tipo do golpe")
+        return {}
+    if m.get("acao") != "golpe":
+        raise ValueError(f"tipo de golpe só vale para a ação 'golpe', não '{m.get('acao')}'")
+    if golpe not in GOLPES:
+        raise ValueError(f"tipo de golpe desconhecido: {golpe}")
+    if mao is not None and mao not in MAOS:
+        raise ValueError(f"mão desconhecida: {mao}")
+    fixa = MAO_FIXA.get(golpe)
+    if fixa:
+        if mao not in (None, fixa):
+            raise ValueError(f"{golpe} é sempre da mão {'da frente' if fixa == 'frente' else 'de trás'}")
+        mao = fixa
+    elif mao is None:
+        raise ValueError(f"{golpe} precisa da mão (frente ou trás)")
+    return {"golpe": golpe, "mao": mao}
+
+
+def chave_golpe(m: dict) -> str | None:
+    """Chave da contagem por tipo (ex.: 'cruzado_tras'); None para golpe sem tipo."""
+    g = m.get("golpe")
+    return None if not g else (g if g in MAO_FIXA else f"{g}_{m['mao']}")
 
 
 def segmentos(marcas: list[dict]) -> tuple[list[dict], bool]:
@@ -140,6 +179,7 @@ def resumir(doc: dict) -> dict:
     inicio = segs[0]["ini"] if segs else None
     fim = segs[-1]["fim"] if segs else None
     n_acao = dict.fromkeys(ACOES, 0)
+    n_tipo = dict.fromkeys((*CHAVES_GOLPE, None), 0)
     fora_do_round = fora_do_estado = 0
     inis = [c["ini"] for c in corridas]
     for m in marcas:
@@ -149,6 +189,8 @@ def resumir(doc: dict) -> dict:
             fora_do_round += 1
             continue
         n_acao[m["acao"]] += 1
+        if m["acao"] == "golpe":
+            n_tipo[chave_golpe(m)] += 1
         c = corridas[max(bisect.bisect_right(inis, m["t"]) - 1, 0)]
         c["acoes"] += 1
         if c["estado"] != ACOES[m["acao"]]:
@@ -183,6 +225,10 @@ def resumir(doc: dict) -> dict:
         "n_bloqueios": n_acao["bloqueio"], "n_esquivas": n_acao["esquiva"],
         "n_guarda": n_acao["guarda"], "n_defesa_sem_tipo": n_acao["defesa"],
         "n_sequencias_ataque": trechos["ataque"],
+        **{f"n_{k}": n_tipo[k] for k in CHAVES_GOLPE},
+        "n_cruzado": n_tipo["cruzado_frente"] + n_tipo["cruzado_tras"],
+        "n_gancho": n_tipo["gancho_frente"] + n_tipo["gancho_tras"],
+        "n_golpe_sem_tipo": n_tipo[None],
         "t_desl_esq": r2(t_dir["esq"]), "t_desl_dir": r2(t_dir["dir"]),
         "t_desl_frente": r2(t_dir["frente"]), "t_desl_tras": r2(t_dir["tras"]),
         "t_desl_sem_dir": r2(t_dir[None]),
@@ -237,6 +283,7 @@ def csv_intervalos(doc: dict) -> str:
 def csv_acoes(doc: dict) -> str:
     segs, _ = segmentos(doc["marcas"])
     acoes = sorted((m for m in doc["marcas"] if m["tipo"] == "acao"), key=lambda m: m["t"])
-    return _csv(["t_s", "relogio_round_s", "acao", "grupo"], [
+    return _csv(["t_s", "relogio_round_s", "acao", "grupo", "golpe", "mao"], [
         {"t_s": m["t"], "relogio_round_s": round(relogio_round(segs, m["t"]), 3), "acao": m["acao"],
-         "grupo": ACOES[m["acao"]]} for m in acoes])
+         "grupo": ACOES[m["acao"]], "golpe": m.get("golpe", ""), "mao": m.get("mao", "")}
+        for m in acoes])
