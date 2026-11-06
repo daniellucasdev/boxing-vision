@@ -8,3 +8,6 @@ pandas>=2.2
 scipy>=1.13
 statsmodels>=0.14
 scikit-learn>=1.5
+
+# relatório de progresso em PDF (4.2.x ainda roda no Python 3.9)
+reportlab>=4.2
